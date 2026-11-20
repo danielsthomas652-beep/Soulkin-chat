@@ -2,7 +2,7 @@
   "name": "solkin-chat",
   "version": "1.0.0",
   "private": true,
-  "description": "MLT Chat - a friendly little social app: shared feed, videos, people.",
+  "description": "mLT. chat - a friendly little social app: shared feed, videos, people.",
   "type": "commonjs",
   "scripts": {
     "start": "node server/index.js"

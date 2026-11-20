@@ -1,4 +1,4 @@
-// MLT Chat — real app server (Express + SQLite).
+// mLT. chat — real app server (Express + SQLite).
 // Real accounts, hashed passwords, signed cookie sessions, one shared feed.
 const express = require('express');
 const http = require('http');
@@ -594,7 +594,7 @@ async function start() {
     process.exit(1);
   }
   server.listen(PORT, () => {
-    console.log(`MLT Chat running at http://localhost:${PORT}  (db: ${engine}${cloudMode ? ', cloud mode' : ''})`);
+    console.log(`mLT. chat running at http://localhost:${PORT}  (db: ${engine}${cloudMode ? ', cloud mode' : ''})`);
   });
 }
 start();
