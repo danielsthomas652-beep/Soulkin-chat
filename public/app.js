@@ -95,6 +95,7 @@ function enterApp() {
   $('#composerAvatar').innerHTML = avatarHTML(me.displayName, me.username, 'md');
   loadFeed();
   showView('feed');
+  connectWS();
 }
 
 /* ================= feed ================= */
@@ -543,8 +544,9 @@ function renderMusicPicker() {
 /* ================= people & friends ================= */
 function personRowHTML(p, actionHTML) {
   const posts = p.postCount != null ? ` · ${p.postCount} post${p.postCount === 1 ? '' : 's'}` : '';
+  const dot = typeof p.online === 'boolean' ? `<span class="online-dot ${friendOnline(p) ? 'on' : ''}" data-dot-for="${p.id}" title="${friendOnline(p) ? 'Online now' : 'Offline'}"></span>` : '';
   return `<div class="card person">${avatarHTML(p.displayName, p.username, 'md')}
-    <div class="grow"><div class="nm">${esc(p.displayName)}${p.isProtected ? '<span class="badge">🛡️ Protected</span>' : ''}</div><div class="sub">@${esc(p.username)}${posts}</div></div>
+    <div class="grow"><div class="nm">${dot}${esc(p.displayName)}${p.isProtected ? '<span class="badge">🛡️ Protected</span>' : ''}</div><div class="sub">@${esc(p.username)}${posts}</div></div>
     ${actionHTML || ''}</div>`;
 }
 function friendBtnHTML(p) {
@@ -567,7 +569,7 @@ async function loadFriends() {
       ? data.incoming.map((p) => personRowHTML(p, `<span class="friend-btns"><button class="btn sm" data-friend="accept" data-req="${p.requestId}" type="button">Accept</button><button class="btn ghost sm" data-friend="decline" data-req="${p.requestId}" type="button">Decline</button></span>`)).join('')
       : '<div class="card empty">No new requests right now.</div>';
     $('#friendList').innerHTML = data.friends.length
-      ? data.friends.map((p) => personRowHTML(p, `<button class="btn ghost sm" data-friend="remove" data-id="${p.id}" type="button">Unfriend</button>`)).join('')
+      ? data.friends.map((p) => personRowHTML(p, `<span class="friend-btns"><button class="btn sm" data-call="${p.id}" data-callname="${esc(p.displayName)}" type="button">📹 Video call</button><button class="btn ghost sm" data-friend="remove" data-id="${p.id}" type="button">Unfriend</button></span>`)).join('')
       : '<div class="card empty">No friends yet — add some from the People page! 🙂</div>';
     $('#friendOutgoing').innerHTML = data.outgoing.length
       ? data.outgoing.map((p) => personRowHTML(p, '<span class="friend-state">Requested</span>')).join('')
@@ -588,6 +590,198 @@ document.addEventListener('click', async (e) => {
     if (!$('#view-people').classList.contains('hidden')) loadPeople();
     if (!$('#view-friends').classList.contains('hidden')) loadFriends();
   } catch (ex) { toast(ex.message); btn.disabled = false; }
+});
+
+/* ================= video calls (WebRTC + WebSocket signaling) ================= */
+// The server relays only the setup messages; picture and sound travel
+// directly between the two phones/computers. Calls work between friends
+// who are both online — the server checks the rules, we just show them.
+const RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+let wsConn = null, wsRetryTimer = null;
+let onlineFriends = new Set();
+let presenceReady = false;
+let pc = null;               // RTCPeerConnection for the current call
+let localStream = null;      // camera + mic stream
+let activeCall = null;       // { callId, peerId, peerName, role: 'caller' | 'callee' }
+let pendingCall = null;      // incoming call waiting on Accept/Decline: { callId, from }
+let pendingOffer = null;     // SDP offer that arrived before Accept was tapped
+let pendingIce = [];         // ICE candidates that arrived before the remote description was set
+
+function friendOnline(p) { return presenceReady ? onlineFriends.has(p.id) : !!p.online; }
+function patchOnlineDots() {
+  $$('[data-dot-for]').forEach((el) => {
+    const on = onlineFriends.has(+el.dataset.dotFor);
+    el.classList.toggle('on', on);
+    el.title = on ? 'Online now' : 'Offline';
+  });
+}
+function connectWS() {
+  if (!me || wsConn) return;
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  try { wsConn = new WebSocket(proto + '//' + location.host + '/ws'); } catch (e) { return; }
+  wsConn.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } onWsMessage(m); };
+  wsConn.onclose = () => { wsConn = null; clearTimeout(wsRetryTimer); if (me) wsRetryTimer = setTimeout(connectWS, 3000); };
+  wsConn.onerror = () => { try { wsConn.close(); } catch (e) { /* ignore */ } };
+}
+function wsSendMsg(obj) { if (wsConn && wsConn.readyState === WebSocket.OPEN) wsConn.send(JSON.stringify(obj)); }
+
+function onWsMessage(m) {
+  if (m.type === 'presence') { onlineFriends = new Set(m.online || []); presenceReady = true; patchOnlineDots(); }
+  else if (m.type === 'friend-online' && m.user) { onlineFriends.add(m.user.id); patchOnlineDots(); }
+  else if (m.type === 'friend-offline' && m.user) { onlineFriends.delete(m.user.id); patchOnlineDots(); }
+  else if (m.type === 'incoming-call') showIncomingCall(m);
+  else if (m.type === 'ringing') onCallRinging(m);
+  else if (m.type === 'offer') handleOffer(m);
+  else if (m.type === 'answer') handleAnswer(m);
+  else if (m.type === 'ice') handleIce(m);
+  else if (m.type === 'declined') { toast((activeCall ? activeCall.peerName : 'Your friend') + ' declined the call.'); cleanupCall(false); }
+  else if (m.type === 'ended') { toast(m.reason === 'disconnected' ? 'The call dropped — they disconnected.' : 'Call ended.'); cleanupCall(false); }
+  else if (m.type === 'call-error') {
+    toast(m.error || 'The call could not go through.');
+    if (activeCall && !activeCall.callId) cleanupCall(false); // refused before it ever rang — tear down the "Calling…" screen
+    if (pendingCall && m.callId === pendingCall.callId) { pendingCall = null; pendingOffer = null; $('#callPopup').classList.add('hidden'); }
+  }
+}
+
+async function getLocalStream() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    throw new Error('This browser cannot use a camera for calls. Try Chrome or Safari on your phone.');
+  }
+  try {
+    return await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  } catch (e) {
+    if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) throw new Error('Camera and microphone are blocked. Allow them for this site in your browser settings, then try the call again.');
+    if (e && (e.name === 'NotFoundError' || e.name === 'OverconstrainedError' || e.name === 'NotReadableError' || e.name === 'NotFoundError')) throw new Error('No working camera or microphone was found on this device.');
+    throw new Error('Could not start your camera or microphone.');
+  }
+}
+function newPeerConnection() {
+  pc = new RTCPeerConnection(RTC_CONFIG);
+  pc.onicecandidate = (e) => { if (e.candidate && activeCall && activeCall.callId) wsSendMsg({ type: 'ice', callId: activeCall.callId, candidate: e.candidate }); };
+  pc.ontrack = (e) => { if (e.streams && e.streams[0]) $('#remoteVideo').srcObject = e.streams[0]; };
+  pc.onconnectionstatechange = () => { if (pc && pc.connectionState === 'connected') setCallStatus('Connected 🎉'); };
+  if (localStream) localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
+  return pc;
+}
+function setCallStatus(txt) { $('#callStatus').textContent = txt; }
+function showCallScreen(peerName, status) {
+  $('#callPeerName').textContent = peerName;
+  setCallStatus(status);
+  $('#callView').classList.remove('hidden');
+}
+function startVideoCall(userId, peerName) {
+  if (activeCall || pendingCall) { toast('Finish this call first 🙂'); return; }
+  getLocalStream().then((stream) => {
+    localStream = stream;
+    activeCall = { callId: null, peerId: userId, peerName, role: 'caller' };
+    showCallScreen(peerName, 'Calling…');
+    $('#localVideo').srcObject = stream;
+    wsSendMsg({ type: 'call', to: userId });
+  }).catch((e) => toast(e.message));
+}
+async function onCallRinging(m) {
+  if (!activeCall || activeCall.role !== 'caller') return;
+  activeCall.callId = m.callId;
+  setCallStatus('Ringing…');
+  newPeerConnection();
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    wsSendMsg({ type: 'offer', callId: m.callId, sdp: pc.localDescription });
+  } catch (e) { toast('Could not set up the call.'); cleanupCall(true); }
+}
+function showIncomingCall(m) {
+  if (activeCall || pendingCall) return; // the server keeps us to one call; ignore anything extra
+  pendingCall = { callId: m.callId, from: m.from };
+  pendingOffer = null;
+  $('#callFromAvatar').innerHTML = avatarHTML(m.from.displayName, m.from.username, 'lg');
+  $('#callFromName').textContent = m.from.displayName;
+  $('#callPopup').classList.remove('hidden');
+}
+async function acceptCall() {
+  if (!pendingCall) return;
+  const call = pendingCall;
+  $('#callPopup').classList.add('hidden');
+  let stream;
+  try { stream = await getLocalStream(); }
+  catch (e) { toast(e.message); wsSendMsg({ type: 'decline', callId: call.callId }); pendingCall = null; pendingOffer = null; return; }
+  localStream = stream;
+  activeCall = { callId: call.callId, peerId: call.from.id, peerName: call.from.displayName, role: 'callee' };
+  pendingCall = null;
+  showCallScreen(call.from.displayName, 'Connecting…');
+  $('#localVideo').srcObject = stream;
+  newPeerConnection();
+  if (pendingOffer) { const sdp = pendingOffer; pendingOffer = null; handleOffer({ callId: call.callId, sdp }); }
+}
+function declineCall() {
+  if (!pendingCall) return;
+  wsSendMsg({ type: 'decline', callId: pendingCall.callId });
+  pendingCall = null; pendingOffer = null;
+  $('#callPopup').classList.add('hidden');
+}
+async function handleOffer(m) {
+  if (pendingCall && m.callId === pendingCall.callId) { pendingOffer = m.sdp; return; } // still deciding — hold it
+  if (!activeCall || activeCall.callId !== m.callId || activeCall.role !== 'callee' || !pc) return;
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(m.sdp));
+    flushPendingIce();
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    wsSendMsg({ type: 'answer', callId: m.callId, sdp: pc.localDescription });
+    setCallStatus('Connecting…');
+  } catch (e) { toast('Could not answer the call.'); cleanupCall(true); }
+}
+async function handleAnswer(m) {
+  if (!activeCall || activeCall.callId !== m.callId || !pc) return;
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(m.sdp));
+    flushPendingIce();
+    setCallStatus('Connecting…');
+  } catch (e) { toast('The call could not connect.'); cleanupCall(true); }
+}
+async function handleIce(m) {
+  if (!activeCall || activeCall.callId !== m.callId || !m.candidate) return;
+  if (!pc || !pc.remoteDescription) { pendingIce.push(m.candidate); return; }
+  try { await pc.addIceCandidate(new RTCIceCandidate(m.candidate)); } catch (e) { /* stale candidate — ignore */ }
+}
+function flushPendingIce() {
+  const list = pendingIce; pendingIce = [];
+  list.forEach((c) => { pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}); });
+}
+function cleanupCall(sendHangup) {
+  if (sendHangup && activeCall && activeCall.callId) wsSendMsg({ type: 'hangup', callId: activeCall.callId });
+  if (pc) { try { pc.close(); } catch (e) { /* ignore */ } pc = null; }
+  if (localStream) { localStream.getTracks().forEach((t) => t.stop()); localStream = null; }
+  $('#remoteVideo').srcObject = null;
+  $('#localVideo').srcObject = null;
+  activeCall = null; pendingOffer = null; pendingIce = [];
+  $('#callView').classList.add('hidden');
+  const muteBtn = $('#btnMute'), camBtn = $('#btnCam');
+  muteBtn.classList.remove('off'); muteBtn.innerHTML = '🎤<span>Mute</span>';
+  camBtn.classList.remove('off'); camBtn.innerHTML = '📷<span>Camera</span>';
+}
+$('#btnCallAccept').addEventListener('click', acceptCall);
+$('#btnCallDecline').addEventListener('click', declineCall);
+$('#btnHangup').addEventListener('click', () => cleanupCall(true));
+$('#btnMute').addEventListener('click', () => {
+  if (!localStream) return;
+  const track = localStream.getAudioTracks()[0]; if (!track) return;
+  track.enabled = !track.enabled;
+  $('#btnMute').classList.toggle('off', !track.enabled);
+  $('#btnMute').innerHTML = track.enabled ? '🎤<span>Mute</span>' : '🔇<span>Unmute</span>';
+});
+$('#btnCam').addEventListener('click', () => {
+  if (!localStream) return;
+  const track = localStream.getVideoTracks()[0]; if (!track) return;
+  track.enabled = !track.enabled;
+  $('#btnCam').classList.toggle('off', !track.enabled);
+  $('#btnCam').innerHTML = track.enabled ? '📷<span>Camera</span>' : '🚫<span>Camera off</span>';
+});
+/* "Video call" buttons in the Friends list */
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-call]');
+  if (!btn) return;
+  startVideoCall(+btn.dataset.call, btn.dataset.callname || 'Friend');
 });
 
 /* ================= profile ================= */

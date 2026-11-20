@@ -1,11 +1,13 @@
 // Solkin Chat — real app server (Express + SQLite).
 // Real accounts, hashed passwords, signed cookie sessions, one shared feed.
 const express = require('express');
+const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
+const WebSocket = require('ws');
 const { db, engine, cloudMode, initDb } = require('./db');
 const { SONGS, songById } = require('./songs');
 const { VIDEOS } = require('./videos');
@@ -143,6 +145,7 @@ async function seed() {
 
 // ---------- app ----------
 const app = express();
+const server = http.createServer(app); // shared by Express and the WebSocket signaling layer
 app.use(express.json({ limit: '1mb' }));
 app.use('/uploads', express.static(UPLOADS_DIR));
 app.use(express.static(path.join(ROOT, 'public')));
@@ -367,11 +370,152 @@ app.get('/api/friends', requireAuth, async (req, res) => {
     const otherId = f.requester_id === meId ? f.addressee_id : f.requester_id;
     const other = publicUser(await getUserById(otherId));
     if (!other) continue;
-    if (f.status === 'accepted') friends.push(other);
+    if (f.status === 'accepted') friends.push({ ...other, online: onlineSockets.has(otherId) });
     else if (f.addressee_id === meId) incoming.push({ ...other, requestId: f.id, createdAt: f.created_at });
     else outgoing.push({ ...other, requestId: f.id, createdAt: f.created_at });
   }
   res.json({ friends, incoming, outgoing });
+});
+
+// ----- video chat signaling (WebSocket, /ws) -----
+// 1:1 friend video calls. The WebSocket carries ONLY signaling (call setup,
+// SDP offer/answer, ICE candidates, hangup/decline) — the actual audio/video
+// flows peer-to-peer via WebRTC. Presence and all call state live in memory
+// on this one process (v1 scale); nothing about a call is stored in the DB.
+//
+// Auth: the upgrade request must carry the same signed session cookie as
+// the REST API (readSession) — no cookie, no socket.
+//
+// CALL RULES — enforced here, server-side, non-negotiable:
+//   * Calls only between ACCEPTED friends (friendships table).
+//   * If exactly one side is Protected (under-18), the call is refused at
+//     setup time — even if a friendship row somehow exists (defense in
+//     depth; the friend-request rule already prevents the pairing).
+//   * One call per user at a time; signaling is relayed ONLY between the
+//     two participants of a call — third parties receive nothing.
+const wss = new WebSocket.WebSocketServer({ noServer: true });
+const onlineSockets = new Map(); // userId -> Set<ws> (presence: >= 1 open socket)
+const calls = new Map();         // callId -> { id, callerId, calleeId, state: 'ringing' | 'active' }
+const callOfUser = new Map();    // userId -> callId
+
+function wsSend(userId, obj) {
+  const set = onlineSockets.get(userId);
+  if (!set) return;
+  const data = JSON.stringify(obj);
+  for (const s of set) { if (s.readyState === WebSocket.OPEN) { try { s.send(data); } catch (e) { /* socket going away */ } } }
+}
+async function acceptedFriendIds(userId) {
+  const rows = await db.prepare("SELECT requester_id, addressee_id FROM friendships WHERE status = 'accepted' AND (requester_id = ? OR addressee_id = ?)").all(userId, userId);
+  return rows.map((r) => (r.requester_id === userId ? r.addressee_id : r.requester_id));
+}
+async function sendPresence(user) {
+  const ids = await acceptedFriendIds(user.id);
+  wsSend(user.id, { type: 'presence', online: ids.filter((id) => onlineSockets.has(id)) });
+}
+async function notifyFriendsPresence(user, online) {
+  const ids = await acceptedFriendIds(user.id);
+  for (const id of ids) wsSend(id, { type: online ? 'friend-online' : 'friend-offline', user: publicUser(user) });
+}
+function endCall(call, notifyUserId, msg) {
+  calls.delete(call.id);
+  if (callOfUser.get(call.callerId) === call.id) callOfUser.delete(call.callerId);
+  if (callOfUser.get(call.calleeId) === call.id) callOfUser.delete(call.calleeId);
+  if (notifyUserId) wsSend(notifyUserId, msg);
+}
+
+async function startVideoCall(ws, me, msg) {
+  const fail = (error) => wsSend(me.id, { type: 'call-error', error });
+  const targetId = +msg.to;
+  if (!Number.isInteger(targetId) || targetId <= 0) return fail('That call could not be started.');
+  if (targetId === me.id) return fail("You can't call yourself.");
+  const target = await getUserById(targetId);
+  if (!target) return fail('That person was not found.');
+  const f = await friendshipBetween(me.id, targetId);
+  if (!f || f.status !== 'accepted') return fail('You can only video call your friends — add ' + target.display_name + ' as a friend first.');
+  if (!!me.is_protected !== !!target.is_protected) {
+    return fail("For safety, video calls between Protected (under-18) accounts and adult accounts aren't allowed.");
+  }
+  if (callOfUser.has(me.id)) return fail("You're already in a call.");
+  if (callOfUser.has(targetId)) return fail(target.display_name + ' is on another call right now.');
+  if (!onlineSockets.has(targetId)) return fail(target.display_name + " isn't online right now — video calls work when you're both here.");
+  const call = { id: crypto.randomBytes(8).toString('hex'), callerId: me.id, calleeId: targetId, state: 'ringing' };
+  calls.set(call.id, call);
+  callOfUser.set(me.id, call.id);
+  callOfUser.set(targetId, call.id);
+  wsSend(targetId, { type: 'incoming-call', callId: call.id, from: publicUser(me) });
+  wsSend(me.id, { type: 'ringing', callId: call.id, to: publicUser(target) });
+}
+
+function relayCallMessage(ws, me, msg) {
+  const call = calls.get(String(msg.callId || ''));
+  if (!call || (call.callerId !== me.id && call.calleeId !== me.id)) {
+    wsSend(me.id, { type: 'call-error', callId: msg.callId || null, error: 'That call is no longer available.' });
+    return;
+  }
+  const otherId = call.callerId === me.id ? call.calleeId : call.callerId;
+  if (msg.type === 'decline') {
+    if (call.calleeId !== me.id || call.state !== 'ringing') return; // only the person being called can decline, and only while it rings
+    endCall(call, otherId, { type: 'declined', callId: call.id, by: publicUser(me) });
+    return;
+  }
+  if (msg.type === 'hangup') {
+    endCall(call, otherId, { type: 'ended', callId: call.id, reason: 'hangup' });
+    return;
+  }
+  // offer / answer / ice — relayed only between the two participants.
+  if (msg.type === 'offer' && call.callerId !== me.id) return; // the caller makes the offer
+  if (msg.type === 'answer') {
+    if (call.calleeId !== me.id) return; // only the person called can answer
+    call.state = 'active';
+  }
+  const out = { type: msg.type, callId: call.id, from: me.id };
+  if (msg.type === 'ice') out.candidate = msg.candidate;
+  else out.sdp = msg.sdp;
+  wsSend(otherId, out);
+}
+
+async function handleSignal(ws, raw) {
+  let msg;
+  try { msg = JSON.parse(String(raw)); } catch (e) { return; }
+  const me = ws.user;
+  if (!me || !msg || typeof msg.type !== 'string') return;
+  if (msg.type === 'call') return startVideoCall(ws, me, msg);
+  if (['offer', 'answer', 'ice', 'decline', 'hangup'].includes(msg.type)) return relayCallMessage(ws, me, msg);
+}
+
+server.on('upgrade', (req, socket, head) => {
+  let pathname = '';
+  try { pathname = new URL(req.url, 'http://localhost').pathname; } catch (e) { /* ignore */ }
+  if (pathname !== '/ws') { socket.destroy(); return; }
+  const uid = readSession(req); // same signed cookie as the REST API
+  if (!uid) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
+  wss.handleUpgrade(req, socket, head, (ws) => { ws.userId = uid; wss.emit('connection', ws, req); });
+});
+
+wss.on('connection', async (ws) => {
+  const user = await getUserById(ws.userId);
+  if (!user) { try { ws.close(); } catch (e) { /* ignore */ } return; }
+  ws.user = user;
+  let set = onlineSockets.get(user.id);
+  const firstSocket = !set || set.size === 0;
+  if (!set) { set = new Set(); onlineSockets.set(user.id, set); }
+  set.add(ws);
+  sendPresence(user).catch(() => {});
+  if (firstSocket) notifyFriendsPresence(user, true).catch(() => {});
+  ws.on('message', (raw) => { handleSignal(ws, raw).catch((e) => console.error('[ws] signaling error:', e && e.message ? e.message : e)); });
+  ws.on('close', () => {
+    const s = onlineSockets.get(user.id);
+    if (s) { s.delete(ws); if (s.size === 0) onlineSockets.delete(user.id); }
+    const callId = callOfUser.get(user.id);
+    if (callId) {
+      const call = calls.get(callId);
+      if (call) {
+        const otherId = call.callerId === user.id ? call.calleeId : call.callerId;
+        endCall(call, otherId, { type: 'ended', callId: call.id, reason: 'disconnected' });
+      }
+    }
+    if (!onlineSockets.has(user.id)) notifyFriendsPresence(user, false).catch(() => {});
+  });
 });
 
 // ----- videos -----
@@ -449,7 +593,7 @@ async function start() {
     console.error(`[db] Failed to initialise the database (${engine}):`, e && e.message ? e.message : e);
     process.exit(1);
   }
-  app.listen(PORT, () => {
+  server.listen(PORT, () => {
     console.log(`Solkin Chat running at http://localhost:${PORT}  (db: ${engine}${cloudMode ? ', cloud mode' : ''})`);
   });
 }

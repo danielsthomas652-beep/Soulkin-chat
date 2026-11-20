@@ -164,3 +164,23 @@ input,textarea,select{font:inherit}
 .song-row .prev{color:var(--navy); font-weight:700; padding:8px 6px}
 .toast{position:fixed; left:50%; bottom:96px; transform:translateX(-50%); z-index:90; background:var(--navy); color:#fff; padding:11px 18px; border-radius:999px; font-weight:600; font-size:14px; box-shadow:0 8px 24px rgba(10,20,40,.3); max-width:92vw; text-align:center}
 .empty{color:var(--muted); text-align:center; padding:26px 10px}
+
+/* ---------- video calls ---------- */
+.btn.green{background:#0a9d62}
+.online-dot{display:inline-block; width:10px; height:10px; border-radius:50%; background:#c3cede; margin-right:6px; vertical-align:1px}
+.online-dot.on{background:#22b573; box-shadow:0 0 0 3px #d9f5e8}
+.call-popup{position:fixed; inset:0; z-index:80; background:rgba(9,16,30,.45); display:flex; align-items:center; justify-content:center; padding:16px}
+.call-popup-in{background:var(--surface); border-radius:18px; padding:26px 20px 20px; text-align:center; width:100%; max-width:340px; box-shadow:0 18px 44px rgba(10,20,40,.35)}
+.call-from{font-size:21px; font-weight:800; color:var(--navy); margin-top:12px}
+.call-sub{color:var(--muted); margin:4px 0 0}
+.call-popup-btns{display:flex; gap:10px; margin-top:18px}
+.call-popup-btns .btn{flex:1}
+.call-stage{flex:1; position:relative; background:#000; min-height:0}
+.call-stage #remoteVideo{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#000}
+.call-stage #localVideo{position:absolute; right:12px; bottom:12px; width:27%; max-width:150px; aspect-ratio:3/4; object-fit:cover; border-radius:12px; border:2px solid rgba(255,255,255,.75); background:#1c2740; z-index:2}
+.call-status{color:#cdd8ee; font-size:14px; font-weight:600}
+.call-controls{display:flex; gap:10px; justify-content:center; padding:14px 12px calc(14px + env(safe-area-inset-bottom)); background:rgba(9,16,30,.92)}
+.call-ctl{display:flex; flex-direction:column; align-items:center; gap:2px; background:rgba(255,255,255,.16); color:#fff; border-radius:14px; padding:10px 18px; font-size:19px; min-width:78px}
+.call-ctl span{font-size:11px; font-weight:700}
+.call-ctl.off{background:var(--red)}
+.call-ctl.hangup{background:var(--red)}

@@ -160,6 +160,36 @@
   </div>
 </div>
 
+<!-- ============ INCOMING CALL POPUP ============ -->
+<div id="callPopup" class="call-popup hidden">
+  <div class="call-popup-in">
+    <span id="callFromAvatar"></span>
+    <div class="call-from" id="callFromName">Someone</div>
+    <p class="call-sub">is video calling you… 📹</p>
+    <div class="call-popup-btns">
+      <button class="btn green" id="btnCallAccept" type="button">✓ Accept</button>
+      <button class="btn red" id="btnCallDecline" type="button">✕ Decline</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ IN-CALL SCREEN ============ -->
+<div id="callView" class="overlay hidden">
+  <div class="viewer-top">
+    <b id="callPeerName">Video call</b>
+    <span id="callStatus" class="call-status">Calling…</span>
+  </div>
+  <div class="call-stage">
+    <video id="remoteVideo" autoplay playsinline></video>
+    <video id="localVideo" autoplay playsinline muted></video>
+  </div>
+  <div class="call-controls">
+    <button class="call-ctl" id="btnMute" type="button">🎤<span>Mute</span></button>
+    <button class="call-ctl" id="btnCam" type="button">📷<span>Camera</span></button>
+    <button class="call-ctl hangup" id="btnHangup" type="button">📞<span>Hang up</span></button>
+  </div>
+</div>
+
 <audio id="songAudio" loop></audio>
 <div id="toast" class="toast hidden"></div>
 
