@@ -68,7 +68,7 @@ $('#authForm').addEventListener('submit', async (e) => {
     }
     me = data.user;
     enterApp();
-    toast(authMode === 'signup' ? 'Welcome to Solkin Chat! 🎉' : 'Welcome back! 👋');
+    toast(authMode === 'signup' ? 'Welcome to MLT Chat! 🎉' : 'Welcome back! 👋');
   } catch (ex) {
     err.textContent = ex.message; err.classList.remove('hidden');
   } finally { btn.disabled = false; }

@@ -1,4 +1,4 @@
-# Render Blueprint for Solkin Chat — free web service + Turso database.
+# Render Blueprint for MLT Chat — free web service + Turso database.
 # Render provides PORT automatically; the app reads process.env.PORT.
 # TURSO_DATABASE_URL / TURSO_AUTH_TOKEN: create the database at turso.tech
 # first, then paste the values in the Render dashboard (sync: false = the

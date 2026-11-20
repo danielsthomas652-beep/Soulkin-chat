@@ -1,4 +1,4 @@
-# Solkin Chat — the real app (v1)
+# MLT Chat — the real app (v1)
 
 A working full-stack social web app: **real accounts, real hashed passwords, and one shared database**, so posts save, survive restarts, and are visible to every user — the things the old static prototype could never do.
 
