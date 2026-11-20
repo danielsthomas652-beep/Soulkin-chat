@@ -1,0 +1,173 @@
+// Database layer — three engines behind one small facade:
+//
+//   1. Turso (cloud mode): when TURSO_DATABASE_URL and TURSO_AUTH_TOKEN are
+//      both set, use @libsql/client against the hosted SQLite database.
+//      This is the mode used on Render, whose free-tier disk is ephemeral —
+//      the database (and photo blobs) live in Turso, not on local disk.
+//   2. better-sqlite3 (local default): a SQLite file in data/.
+//   3. node:sqlite (local fallback) if the native module is unavailable.
+//
+// Facade contract (used everywhere in server/index.js):
+//   db.prepare(sql) -> { get(...args), all(...args), run(...args) }
+//   db.exec(sql)    -> run multi-statement SQL (schema setup)
+//   run() resolves to { changes, lastInsertRowid } on every engine.
+// The local engines return plain values; the Turso engine returns Promises.
+// Callers always `await`, which works for both. All SQL is identical across
+// engines (positional `?` params only).
+const path = require('path');
+const fs = require('fs');
+
+const TURSO_URL = process.env.TURSO_DATABASE_URL || '';
+const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN || '';
+const cloudMode = !!(TURSO_URL && TURSO_TOKEN);
+
+const DATA_DIR = path.join(__dirname, '..', 'data');
+const DB_PATH = cloudMode ? null : path.join(DATA_DIR, 'solkin.db');
+
+let engine;
+let db;
+
+function normalizeLocalRun(info) {
+  return {
+    changes: info && info.changes != null ? Number(info.changes) : 0,
+    lastInsertRowid: info && info.lastInsertRowid != null ? Number(info.lastInsertRowid) : null,
+  };
+}
+
+function makeLocalFacade(raw) {
+  return {
+    prepare(sql) {
+      const stmt = raw.prepare(sql);
+      return {
+        get: (...args) => stmt.get(...args),
+        all: (...args) => stmt.all(...args),
+        run: (...args) => normalizeLocalRun(stmt.run(...args)),
+      };
+    },
+    exec: (sql) => raw.exec(sql),
+  };
+}
+
+function libsqlArg(a) {
+  if (a === undefined) return null;
+  if (Buffer.isBuffer(a)) return new Uint8Array(a); // BLOB (photo bytes)
+  return a;
+}
+
+function makeTursoFacade(client) {
+  return {
+    prepare(sql) {
+      return {
+        get: async (...args) => {
+          const rs = await client.execute({ sql, args: args.map(libsqlArg) });
+          return rs.rows[0];
+        },
+        all: async (...args) => {
+          const rs = await client.execute({ sql, args: args.map(libsqlArg) });
+          return rs.rows;
+        },
+        run: async (...args) => {
+          const rs = await client.execute({ sql, args: args.map(libsqlArg) });
+          return {
+            changes: rs.rowsAffected,
+            lastInsertRowid: rs.lastInsertRowid != null ? Number(rs.lastInsertRowid) : null,
+          };
+        },
+      };
+    },
+    exec: async (sql) => { await client.executeMultiple(sql); },
+  };
+}
+
+if (cloudMode) {
+  const { createClient } = require('@libsql/client');
+  const client = createClient({ url: TURSO_URL, authToken: TURSO_TOKEN });
+  db = makeTursoFacade(client);
+  engine = 'turso (@libsql/client)';
+} else {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  let raw;
+  try {
+    const BetterSQLite3 = require('better-sqlite3');
+    raw = new BetterSQLite3(DB_PATH);
+    engine = 'better-sqlite3';
+  } catch (e) {
+    const { DatabaseSync } = require('node:sqlite');
+    raw = new DatabaseSync(DB_PATH);
+    engine = 'node:sqlite';
+  }
+  try { raw.exec('PRAGMA journal_mode = WAL;'); } catch (e) { /* fine either way */ }
+  try { raw.exec('PRAGMA foreign_keys = ON;'); } catch (e) { /* fine either way */ }
+  db = makeLocalFacade(raw);
+}
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  display_name TEXT NOT NULL,
+  username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  pass_hash TEXT NOT NULL,
+  is_protected INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS posts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  text TEXT NOT NULL DEFAULT '',
+  media_url TEXT,
+  media_type TEXT,
+  song_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS likes (
+  post_id INTEGER NOT NULL REFERENCES posts(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  PRIMARY KEY (post_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  post_id INTEGER NOT NULL REFERENCES posts(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  post_id INTEGER NOT NULL REFERENCES posts(id),
+  reporter_id INTEGER NOT NULL REFERENCES users(id),
+  reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS video_likes (
+  video_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  PRIMARY KEY (video_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS video_comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  video_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS follows (
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  creator TEXT NOT NULL,
+  PRIMARY KEY (user_id, creator)
+);
+CREATE TABLE IF NOT EXISTS media_blobs (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  mime TEXT NOT NULL,
+  data BLOB NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`;
+
+// Creates all tables if needed. Must be awaited once at startup, before
+// seeding or serving requests. Local engines run it synchronously inside.
+async function initDb() {
+  await db.exec(SCHEMA);
+}
+
+module.exports = { db, engine, cloudMode, initDb, DB_PATH };

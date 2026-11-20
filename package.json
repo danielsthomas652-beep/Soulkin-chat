@@ -1,0 +1,17 @@
+{
+  "name": "solkin-chat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Solkin Chat - a friendly little social app: shared feed, videos, people.",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.18.0",
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^13.2.0",
+    "express": "^4.19.2",
+    "multer": "^2.5.0"
+  }
+}
