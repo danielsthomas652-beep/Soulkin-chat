@@ -76,11 +76,12 @@ $('#authForm').addEventListener('submit', async (e) => {
 
 /* ================= nav ================= */
 function showView(name) {
-  ['feed', 'videos', 'people', 'profile'].forEach((v) => $('#view-' + v).classList.toggle('hidden', v !== name));
+  ['feed', 'videos', 'people', 'friends', 'profile'].forEach((v) => $('#view-' + v).classList.toggle('hidden', v !== name));
   $$('.bottomnav button').forEach((b) => b.classList.toggle('on', b.dataset.nav === name));
   if (name === 'videos') { ensureVideos(); resumeCurrentSlide(); }
   else pauseAllSlides();
   if (name === 'people') loadPeople();
+  if (name === 'friends') loadFriends();
   if (name === 'profile') loadProfile();
   window.scrollTo(0, 0);
 }
@@ -539,15 +540,55 @@ function renderMusicPicker() {
   }));
 }
 
-/* ================= people ================= */
+/* ================= people & friends ================= */
+function personRowHTML(p, actionHTML) {
+  const posts = p.postCount != null ? ` · ${p.postCount} post${p.postCount === 1 ? '' : 's'}` : '';
+  return `<div class="card person">${avatarHTML(p.displayName, p.username, 'md')}
+    <div class="grow"><div class="nm">${esc(p.displayName)}${p.isProtected ? '<span class="badge">🛡️ Protected</span>' : ''}</div><div class="sub">@${esc(p.username)}${posts}</div></div>
+    ${actionHTML || ''}</div>`;
+}
+function friendBtnHTML(p) {
+  if (!me || p.id === me.id || p.relationship === 'self') return '<span class="friend-state">You</span>';
+  if (p.relationship === 'friends') return '<span class="friend-state ok">Friends ✓</span>';
+  if (p.relationship === 'pending_out') return '<span class="friend-state">Requested</span>';
+  if (p.relationship === 'pending_in') return `<span class="friend-btns"><button class="btn sm" data-friend="accept" data-req="${p.friendRequestId}" type="button">Accept</button><button class="btn ghost sm" data-friend="decline" data-req="${p.friendRequestId}" type="button">Decline</button></span>`;
+  return `<button class="btn red sm" data-friend="add" data-id="${p.id}" type="button">Add Friend</button>`;
+}
 async function loadPeople() {
   try {
     const data = await api('/api/people');
-    $('#peopleList').innerHTML = data.people.map((p) => `<div class="card person">${avatarHTML(p.displayName, p.username, 'md')}
-      <div class="grow"><div class="nm">${esc(p.displayName)}${p.isProtected ? '<span class="badge">🛡️ Protected</span>' : ''}</div><div class="sub">@${esc(p.username)}</div></div>
-      <span class="cnt">${p.postCount} post${p.postCount === 1 ? '' : 's'}</span></div>`).join('') || '<div class="card empty">No people yet.</div>';
+    $('#peopleList').innerHTML = data.people.map((p) => personRowHTML(p, friendBtnHTML(p))).join('') || '<div class="card empty">No people yet.</div>';
   } catch (e) { toast(e.message); }
 }
+async function loadFriends() {
+  try {
+    const data = await api('/api/friends');
+    $('#friendRequests').innerHTML = data.incoming.length
+      ? data.incoming.map((p) => personRowHTML(p, `<span class="friend-btns"><button class="btn sm" data-friend="accept" data-req="${p.requestId}" type="button">Accept</button><button class="btn ghost sm" data-friend="decline" data-req="${p.requestId}" type="button">Decline</button></span>`)).join('')
+      : '<div class="card empty">No new requests right now.</div>';
+    $('#friendList').innerHTML = data.friends.length
+      ? data.friends.map((p) => personRowHTML(p, `<button class="btn ghost sm" data-friend="remove" data-id="${p.id}" type="button">Unfriend</button>`)).join('')
+      : '<div class="card empty">No friends yet — add some from the People page! 🙂</div>';
+    $('#friendOutgoing').innerHTML = data.outgoing.length
+      ? data.outgoing.map((p) => personRowHTML(p, '<span class="friend-state">Requested</span>')).join('')
+      : '<div class="card empty">None waiting.</div>';
+  } catch (e) { toast(e.message); }
+}
+/* friend actions (event delegation) */
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-friend]');
+  if (!btn) return;
+  const act = btn.dataset.friend;
+  btn.disabled = true;
+  try {
+    if (act === 'add') { await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ userId: +btn.dataset.id }) }); toast('Friend request sent! 📨'); }
+    else if (act === 'accept') { await api('/api/friends/accept', { method: 'POST', body: JSON.stringify({ requestId: +btn.dataset.req }) }); toast('You are friends now! 🎉'); }
+    else if (act === 'decline') { await api('/api/friends/decline', { method: 'POST', body: JSON.stringify({ requestId: +btn.dataset.req }) }); toast('Request declined.'); }
+    else if (act === 'remove') { await api('/api/friends/remove', { method: 'POST', body: JSON.stringify({ userId: +btn.dataset.id }) }); toast('Unfriended.'); }
+    if (!$('#view-people').classList.contains('hidden')) loadPeople();
+    if (!$('#view-friends').classList.contains('hidden')) loadFriends();
+  } catch (ex) { toast(ex.message); btn.disabled = false; }
+});
 
 /* ================= profile ================= */
 async function loadProfile() {

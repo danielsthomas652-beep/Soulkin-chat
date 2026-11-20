@@ -155,6 +155,16 @@ CREATE TABLE IF NOT EXISTS follows (
   creator TEXT NOT NULL,
   PRIMARY KEY (user_id, creator)
 );
+CREATE TABLE IF NOT EXISTS friendships (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  requester_id INTEGER NOT NULL REFERENCES users(id),
+  addressee_id INTEGER NOT NULL REFERENCES users(id),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  low_id INTEGER GENERATED ALWAYS AS (MIN(requester_id, addressee_id)) STORED,
+  high_id INTEGER GENERATED ALWAYS AS (MAX(requester_id, addressee_id)) STORED,
+  UNIQUE (low_id, high_id)
+);
 CREATE TABLE IF NOT EXISTS media_blobs (
   id TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id),

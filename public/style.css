@@ -116,6 +116,10 @@ input,textarea,select{font:inherit}
 .person .nm{font-weight:700}
 .person .sub{font-size:13px; color:var(--muted)}
 .person .cnt{font-weight:800; color:var(--navy); background:var(--soft); border-radius:999px; padding:5px 11px; font-size:13px}
+.btn.sm{padding:8px 13px; border-radius:999px; font-size:14px; white-space:nowrap}
+.friend-state{font-weight:800; color:var(--muted); background:var(--soft); border-radius:999px; padding:7px 12px; font-size:13px; white-space:nowrap}
+.friend-state.ok{color:#0a7a52; background:#e2f6ee}
+.friend-btns{display:inline-flex; gap:6px; flex:none}
 .profile-head{text-align:center; padding:22px 14px}
 .profile-head .nm{font-size:21px; font-weight:800; margin-top:10px}
 .profile-head .sub{color:var(--muted)}

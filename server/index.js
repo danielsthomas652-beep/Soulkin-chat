@@ -282,9 +282,96 @@ app.get('/media/:id', async (req, res) => {
 
 // ----- people -----
 app.get('/api/people', async (req, res) => {
+  const me = await authUser(req);
   const rows = await db.prepare(`SELECT u.*, (SELECT COUNT(*) FROM posts p WHERE p.user_id = u.id) AS post_count
                              FROM users u ORDER BY post_count DESC, u.id ASC`).all();
-  res.json({ people: rows.map((u) => ({ ...publicUser(u), postCount: u.post_count })) });
+  const people = [];
+  for (const u of rows) {
+    const entry = { ...publicUser(u), postCount: u.post_count, relationship: 'none', friendRequestId: null };
+    if (me) {
+      if (u.id === me.id) entry.relationship = 'self';
+      else {
+        const f = await friendshipBetween(me.id, u.id);
+        if (f) {
+          entry.friendRequestId = f.id;
+          if (f.status === 'accepted') entry.relationship = 'friends';
+          else entry.relationship = f.requester_id === me.id ? 'pending_out' : 'pending_in';
+        }
+      }
+    }
+    people.push(entry);
+  }
+  res.json({ people });
+});
+
+// ----- friends -----
+// One row per pair of users (the table enforces it): status 'pending' means
+// requester_id asked addressee_id; 'accepted' means they're friends.
+// Declining or unfriending DELETES the row, so a fresh request can be sent
+// later. SAFETY RULE (owner's standing rule): a Protected (under-18) account
+// and an adult account can never friend each other — requests across that
+// line are refused. Same-band requests (both Protected, or both adult) are
+// fine.
+async function friendshipBetween(a, b) {
+  return await db.prepare('SELECT * FROM friendships WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)').get(a, b, b, a);
+}
+app.post('/api/friends/request', requireAuth, async (req, res) => {
+  const targetId = +((req.body || {}).userId);
+  if (!Number.isInteger(targetId) || targetId <= 0) return res.status(400).json({ error: 'Missing userId.' });
+  if (targetId === req.user.id) return res.status(400).json({ error: "You can't send a friend request to yourself." });
+  const target = await getUserById(targetId);
+  if (!target) return res.status(404).json({ error: 'That person was not found.' });
+  if (!!req.user.is_protected !== !!target.is_protected) {
+    return res.status(403).json({ error: "For safety, friend requests between Protected (under-18) accounts and adult accounts aren't allowed." });
+  }
+  const existing = await friendshipBetween(req.user.id, targetId);
+  if (existing) {
+    if (existing.status === 'accepted') return res.status(409).json({ error: "You're already friends with " + target.display_name + '.' });
+    if (existing.requester_id === req.user.id) return res.status(409).json({ error: 'Friend request already sent — waiting for them to answer.' });
+    return res.status(409).json({ error: target.display_name + ' already sent you a request — accept it from your Friends page.' });
+  }
+  const info = await db.prepare("INSERT INTO friendships (requester_id, addressee_id, status) VALUES (?, ?, 'pending')").run(req.user.id, targetId);
+  res.json({ ok: true, requestId: info.lastInsertRowid, relationship: 'pending_out' });
+});
+app.post('/api/friends/accept', requireAuth, async (req, res) => {
+  const rid = +((req.body || {}).requestId);
+  const f = Number.isInteger(rid) && rid > 0 ? await db.prepare('SELECT * FROM friendships WHERE id = ?').get(rid) : null;
+  if (!f) return res.status(404).json({ error: 'That request was not found.' });
+  if (f.addressee_id !== req.user.id) return res.status(403).json({ error: 'Only the person who received this request can accept it.' });
+  if (f.status === 'accepted') return res.status(409).json({ error: "You're already friends." });
+  await db.prepare("UPDATE friendships SET status = 'accepted' WHERE id = ?").run(rid);
+  res.json({ ok: true, relationship: 'friends' });
+});
+app.post('/api/friends/decline', requireAuth, async (req, res) => {
+  const rid = +((req.body || {}).requestId);
+  const f = Number.isInteger(rid) && rid > 0 ? await db.prepare('SELECT * FROM friendships WHERE id = ?').get(rid) : null;
+  if (!f) return res.status(404).json({ error: 'That request was not found.' });
+  if (f.addressee_id !== req.user.id) return res.status(403).json({ error: 'Only the person who received this request can decline it.' });
+  if (f.status === 'accepted') return res.status(409).json({ error: "You're already friends — unfriend instead if you want to end it." });
+  await db.prepare('DELETE FROM friendships WHERE id = ?').run(rid);
+  res.json({ ok: true });
+});
+app.post('/api/friends/remove', requireAuth, async (req, res) => {
+  const targetId = +((req.body || {}).userId);
+  if (!Number.isInteger(targetId) || targetId <= 0) return res.status(400).json({ error: 'Missing userId.' });
+  const f = await friendshipBetween(req.user.id, targetId);
+  if (!f || f.status !== 'accepted') return res.status(404).json({ error: "You're not friends with that person." });
+  await db.prepare('DELETE FROM friendships WHERE id = ?').run(f.id);
+  res.json({ ok: true });
+});
+app.get('/api/friends', requireAuth, async (req, res) => {
+  const meId = req.user.id;
+  const rows = await db.prepare('SELECT * FROM friendships WHERE requester_id = ? OR addressee_id = ? ORDER BY id ASC').all(meId, meId);
+  const friends = [], incoming = [], outgoing = [];
+  for (const f of rows) {
+    const otherId = f.requester_id === meId ? f.addressee_id : f.requester_id;
+    const other = publicUser(await getUserById(otherId));
+    if (!other) continue;
+    if (f.status === 'accepted') friends.push(other);
+    else if (f.addressee_id === meId) incoming.push({ ...other, requestId: f.id, createdAt: f.created_at });
+    else outgoing.push({ ...other, requestId: f.id, createdAt: f.created_at });
+  }
+  res.json({ friends, incoming, outgoing });
 });
 
 // ----- videos -----
