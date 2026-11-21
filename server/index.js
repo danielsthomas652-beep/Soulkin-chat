@@ -72,7 +72,8 @@ function clearSessionCookie(res) {
 }
 
 // ---------- helpers ----------
-// A stored avatar is a preset portrait id ("p01".."p24") from the
+// A stored avatar is a preset picture id (a face portrait
+// "p01".."p24" or a dress-up look "d1-o01".."d2-o50") from the
 // shared whitelist (public/avatars.js); the picture itself is the
 // static file /avatars/<id>.webp. It is re-validated on the way out
 // as well as on the way in, so even a hand-edited database row can
@@ -269,7 +270,8 @@ app.get('/api/me', async (req, res) => {
 // visiblePhone rule. shareLocation must be a real boolean; turning it
 // OFF also wipes the stored fix (lat/lng/location_at) in the same
 // update, so a friend map can never resurrect a stale position.
-// avatar: a preset portrait id from the gallery ("p01".."p24"), or
+// avatar: a preset picture id from the studio — a face portrait
+// ("p01".."p24") or a dress-up look ("d1-o01".."d2-o50") — or
 // null to take the avatar off and go back to the initial-letter
 // circle. The id is validated against the shared whitelist in
 // public/avatars.js — anything else (an unknown id, an old maker
@@ -386,6 +388,32 @@ app.post('/api/posts/:id/report', requireAuth, async (req, res) => {
   if (!(await db.prepare('SELECT 1 FROM posts WHERE id = ?').get(pid))) return res.status(404).json({ error: 'Post not found.' });
   await db.prepare('INSERT INTO reports (post_id, reporter_id, reason) VALUES (?, ?, ?)')
     .run(pid, req.user.id, String((req.body || {}).reason || '').slice(0, 200));
+  res.json({ ok: true });
+});
+// Delete a post — the AUTHOR only (owner: posts stay up "until you
+// get rid of it", and until now there was no way to get rid of one).
+// A missing post is a 404; somebody else's post is a 403 and stays
+// untouched. The post's likes, comments and reports go with it, and
+// so does its media: the media_blobs row in cloud mode, the file
+// under uploads/ in local mode. Media that lives elsewhere (an
+// https:// URL the post linked to) was never ours to delete.
+app.delete('/api/posts/:id', requireAuth, async (req, res) => {
+  const pid = +req.params.id;
+  const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(pid);
+  if (!post) return res.status(404).json({ error: 'Post not found.' });
+  if (post.user_id !== req.user.id) return res.status(403).json({ error: 'You can only delete your own posts.' });
+  if (post.media_url) {
+    const blob = /^\/media\/([A-Za-z0-9]+)$/.exec(post.media_url);
+    if (blob) {
+      await db.prepare('DELETE FROM media_blobs WHERE id = ?').run(blob[1]);
+    } else if (post.media_url.startsWith('/uploads/')) {
+      await fs.promises.unlink(path.join(UPLOADS_DIR, path.basename(post.media_url))).catch(() => {});
+    }
+  }
+  await db.prepare('DELETE FROM likes WHERE post_id = ?').run(pid);
+  await db.prepare('DELETE FROM comments WHERE post_id = ?').run(pid);
+  await db.prepare('DELETE FROM reports WHERE post_id = ?').run(pid);
+  await db.prepare('DELETE FROM posts WHERE id = ?').run(pid);
   res.json({ ok: true });
 });
 

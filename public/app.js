@@ -9,27 +9,40 @@ function initials(name) { const p = String(name || '?').trim().split(/\s+/); ret
 function avatarHTML(name, username, size) { return `<span class="avatar ${size || 'md'}" style="background:${avColor(username || name)}">${esc(initials(name))}</span>`; }
 
 /* ================= avatar pictures =================
- * A saved avatar is a preset portrait id ("p01".."p24") from the
- * shared list in avatars.js (loaded before this script as the global
- * AvatarPics — the SAME module the server requires to validate
- * PATCH /api/me). The portraits are glossy 3D animated-movie style
- * pictures served as static files from /avatars/<id>.webp; the
- * build-a-character maker that used to live here was retired by the
- * owner ("corny", "cheap").
- * userAvatarHTML() is the one face renderer every list uses: the
- * portrait <img> filling the round slot when the user picked one,
- * otherwise the classic initial-letter circle, exactly as before.
- * The id is checked against the whitelist here too, so anything
- * that isn't a known id — including an old maker config object —
- * falls back to the initial circle instead of a broken image. */
+ * A saved avatar is a preset picture id from the shared whitelist
+ * in avatars.js (loaded before this script as the globals
+ * AvatarPics + AvatarLib — the SAME module the server requires to
+ * validate PATCH /api/me). Two families: the 24 glossy 3D face
+ * portraits ("p01".."p24") and the dress-up studio's full-body
+ * looks ("d1-o01".."d2-o50" — 2 characters x 50 outfits). The
+ * build-a-character maker that used to live here was retired by
+ * the owner ("corny", "cheap").
+ * userAvatarHTML() is the one face renderer every small slot uses
+ * (feed, comments, People, Friends, chat, call popup, map pins):
+ * for a dress-up look it renders the -face head-and-shoulders
+ * crop, for a face portrait the portrait itself — otherwise the
+ * classic initial-letter circle, exactly as before.
+ * userAvatarFullHTML() is the Profile-page renderer: a dress-up
+ * pick shows the FULL-BODY portrait there, outfit and all.
+ * The id is checked against the whitelist here too (via the
+ * shared sanitizeAvatarId), so anything that isn't a known id —
+ * including an old maker config object — falls back to the
+ * initial circle instead of a broken image. */
 function avatarPicId(user) {
-  if (user && typeof user.avatar === 'string' && window.AvatarPics && window.AvatarPics.includes(user.avatar)) return user.avatar;
+  if (user && typeof user.avatar === 'string' && window.AvatarLib) return window.AvatarLib.sanitizeAvatarId(user.avatar);
   return null;
 }
 function userAvatarHTML(user, size) {
   const pic = avatarPicId(user);
   if (pic) {
-    return `<span class="avatar av-pic ${size || 'md'}"><img src="/avatars/${pic}.webp" alt=""></span>`;
+    return `<span class="avatar av-pic ${size || 'md'}"><img src="${window.AvatarLib.avatarUrls(pic).small}" alt=""></span>`;
+  }
+  return avatarHTML(user ? user.displayName : '?', user ? user.username : '?', size);
+}
+function userAvatarFullHTML(user, size) {
+  const pic = avatarPicId(user);
+  if (pic) {
+    return `<span class="avatar av-pic ${size || 'md'}"><img src="${window.AvatarLib.avatarUrls(pic).full}" alt=""></span>`;
   }
   return avatarHTML(user ? user.displayName : '?', user ? user.username : '?', size);
 }
@@ -39,7 +52,7 @@ function refreshMyFaces() {
   $('#meAvatar').innerHTML = userAvatarHTML(me, 'sm');
   $('#composerAvatar').innerHTML = userAvatarHTML(me, 'md');
   const pa = $('#profAvatar');
-  if (pa) pa.innerHTML = userAvatarHTML(me, 'lg');
+  if (pa) pa.innerHTML = userAvatarFullHTML(me, 'lg');
 }
 function timeAgo(iso) {
   const t = new Date(String(iso).replace(' ', 'T') + (String(iso).includes('Z') ? '' : 'Z')).getTime();
@@ -198,6 +211,7 @@ function postCardHTML(p) {
       <button data-act="comment" data-id="${p.id}">${ICON.comment}<span>Comment${p.commentCount ? ' · ' + p.commentCount : ''}</span></button>
       <button data-act="share" data-id="${p.id}">${ICON.share}<span>Share</span></button>
       <button data-act="report" data-id="${p.id}">${ICON.flag}<span>Report</span></button>
+      ${me && a.id === me.id ? `<button data-act="delete" data-id="${p.id}">🗑<span>Delete</span></button>` : ''}
     </div>
     <div class="comments hidden" id="comments-${p.id}"></div>
   </article>`;
@@ -236,6 +250,7 @@ function videoPostCardHTML(p, a, badge) {
         <button class="tk-act ${p.likedByMe ? 'liked' : ''}" data-act="like" data-id="${p.id}" data-rail="1" type="button">${p.likedByMe ? ICON.heartFill : ICON.heart}<span class="cnt">${fmtCount(p.likeCount)}</span><span class="lbl">Like</span></button>
         <button class="tk-act" data-act="comment" data-id="${p.id}" data-rail="1" type="button">${ICON.comment}<span class="cnt">${fmtCount(p.commentCount)}</span><span class="lbl">Comment</span></button>
         <button class="tk-act" data-act="share" data-id="${p.id}" data-rail="1" type="button">${ICON.share}<span class="lbl">Share</span></button>
+        ${me && a.id === me.id ? `<button class="tk-act" data-act="delete" data-id="${p.id}" data-rail="1" type="button">🗑<span class="lbl">Delete</span></button>` : ''}
         <button class="tk-act feed-sound-btn ${soundOn ? 'on' : ''}" type="button" aria-label="Turn sound on or off"><span class="snd">${soundOn ? '🔊' : '🔇'}</span><span class="lbl">Sound</span></button>
       </div>
     </div>
@@ -346,6 +361,13 @@ document.addEventListener('click', async (e) => {
       catch (ex) { window.prompt('Copy this link:', link); }
     } else if (act === 'report') {
       openReportSheet(id);
+    } else if (act === 'delete') {
+      // Only my own cards carry this button, and the server
+      // re-checks authorship — deleting is forever, so confirm.
+      if (!window.confirm('Delete this post? It will be gone for good.')) return;
+      await api(`/api/posts/${id}`, { method: 'DELETE' });
+      $$(`#post-${id}`).forEach((el) => el.remove());
+      toast('Post deleted');
     }
   } catch (ex) { toast(ex.message); }
 });
@@ -1587,6 +1609,12 @@ $('#snapStage').addEventListener('click', (e) => {
   if (e.target && e.target.id === 'snapVideo') return; // taps on the video belong to its controls, not to closing
   closeSnapViewer();
 });
+/* The viewer is an inset card now: a tap on the dimmed page around
+ * the card closes it too, exactly like a tap on the stage did when
+ * the viewer filled the whole screen. */
+$('#snapView').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeSnapViewer();
+});
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !$('#snapView').classList.contains('hidden')) closeSnapViewer();
 });
@@ -2027,7 +2055,7 @@ async function loadProfile() {
   try {
     const data = await api('/api/me');
     me = data.user;
-    $('#profAvatar').innerHTML = userAvatarHTML(me, 'lg');
+    $('#profAvatar').innerHTML = userAvatarFullHTML(me, 'lg');
     $('#btnMakeAvatar').textContent = me.avatar ? '🖼️ Change my avatar' : '🖼️ Pick my avatar';
     $('#profName').innerHTML = esc(me.displayName) + (me.isProtected ? '<span class="badge">🛡️ Protected account</span>' : '');
     $('#profSub').textContent = '@' + me.username;
@@ -2071,36 +2099,91 @@ $('#btnLogout').addEventListener('click', async () => {
   location.reload();
 });
 
-/* ================= avatar gallery =================
- * A full-screen preset-portrait picker, opened from the Profile's
- * "🖼️ Pick my avatar" button. A big preview of the current pick
- * sits on top; below it, a grid of the 24 glossy 3D portraits from
- * /avatars/ (big tappable tiles, the picked one ringed) plus a
- * "use my initial" tile that clears the picture. The pick is just
- * an id string; Save sends it to PATCH /api/me, where the server
- * re-validates it against the same whitelist before storing.
- * Nothing is saved until Save is tapped. */
-let avPick = null;   // the id being picked ('p07'), or null = initial circle
+/* ================= avatar studio =================
+ * A full-screen picker, opened from the Profile's "🖼️ Pick my
+ * avatar" button, with two tabs:
+ *   👗 Dress up (default) — pick a character (Man / Woman), then
+ *      one of their 50 full-body looks from the grid (the look's
+ *      name sits under each tile); the big preview shows the
+ *      whole outfit, head to shoes. 🎲 Surprise me jumps to a
+ *      random character + look.
+ *   🙂 Faces — the original grid of 24 glossy 3D face portraits.
+ * Both tabs share the big preview on top and a "use my initial"
+ * tile that clears the picture. The pick is just an id string;
+ * Save sends it to PATCH /api/me, where the server re-validates
+ * it against the same whitelist before storing. Nothing is saved
+ * until Save is tapped. */
+let avPick = null;   // the id being picked ('p07' / 'd1-o09'), or null = initial circle
+let avTab = 'dress'; // which studio tab is showing: 'dress' | 'faces'
+let avChar = 'd1';   // the character whose 50 looks the Dress up tab shows
+function avIsDress(id) { return !!(id && window.AvatarLib && window.AvatarLib.isDressupPic(id)); }
+function avLookName(id) {
+  const ch = window.AvatarLib.DRESSUP_CHARACTERS.find((c) => c.id === id.slice(0, 2));
+  const n = parseInt(id.slice(4), 10);
+  return (ch ? ch.name : '') + ' · ' + (window.AvatarLib.DRESSUP_LOOKS[n - 1] || '');
+}
 function openAvatarGallery() {
   if (!me) return;
   avPick = avatarPicId(me);
+  if (avIsDress(avPick)) { avTab = 'dress'; avChar = avPick.slice(0, 2); }
+  else if (avPick) { avTab = 'faces'; }
+  else { avTab = 'dress'; }
   $('#avatarView').classList.remove('hidden');
   renderAvatarGallery();
 }
 function closeAvatarGallery() { $('#avatarView').classList.add('hidden'); }
-function renderAvatarGallery() {
-  $('#avPreview').innerHTML = avPick
-    ? `<img src="/avatars/${avPick}.webp" alt="">`
-    : avatarHTML(me.displayName, me.username, 'lg');
-  const noneTile = `<button type="button" class="av-tile av-tile-none ${avPick === null ? 'on' : ''}" data-avpic=""><span class="av-none-art">${avatarHTML(me.displayName, me.username, 'md')}</span><span class="av-tile-label">No picture — use my initial</span></button>`;
-  const tiles = (window.AvatarPics || []).map((id) =>
-    `<button type="button" class="av-tile ${avPick === id ? 'on' : ''}" data-avpic="${id}"><img src="/avatars/${id}.webp" alt="" loading="lazy"></button>`).join('');
-  $('#avOptions').innerHTML = noneTile + tiles;
-  $$('#avOptions [data-avpic]').forEach((b) => b.addEventListener('click', () => {
-    avPick = b.dataset.avpic || null;
-    renderAvatarGallery();
-  }));
+function avNoneTile() {
+  return `<button type="button" class="av-tile av-tile-none ${avPick === null ? 'on' : ''}" data-avpic=""><span class="av-none-art">${avatarHTML(me.displayName, me.username, 'md')}</span><span class="av-tile-label">No picture — use my initial</span></button>`;
 }
+function renderAvatarGallery() {
+  const lib = window.AvatarLib;
+  // Big preview: a dress-up pick shows the FULL-BODY portrait on a
+  // square stage; a face pick keeps the round portrait preview.
+  const prev = $('#avPreview');
+  if (avPick && lib) {
+    prev.innerHTML = `<img src="${lib.avatarUrls(avPick).full}" alt="">`;
+    prev.classList.toggle('av-preview-full', avIsDress(avPick));
+  } else {
+    prev.innerHTML = avatarHTML(me.displayName, me.username, 'lg');
+    prev.classList.remove('av-preview-full');
+  }
+  $('#avPickName').textContent = avPick
+    ? (avIsDress(avPick) ? avLookName(avPick) : 'Face portrait')
+    : 'Your initial';
+  $$('#avatarView [data-avtab]').forEach((b) => b.classList.toggle('on', b.dataset.avtab === avTab));
+  $('#avDressPanel').classList.toggle('hidden', avTab !== 'dress');
+  $('#avFacesPanel').classList.toggle('hidden', avTab !== 'faces');
+  $$('#avatarView [data-avchar]').forEach((b) => b.classList.toggle('on', b.dataset.avchar === avChar));
+  if (!lib) return;
+  $('#avLooks').innerHTML = avNoneTile() + lib.DRESSUP_LOOKS.map((name, i) => {
+    const id = avChar + '-o' + String(i + 1).padStart(2, '0');
+    return `<button type="button" class="av-tile av-tile-look ${avPick === id ? 'on' : ''}" data-avpic="${id}"><img src="/avatars/${id}.webp" alt="" loading="lazy"><span class="av-look-name">${esc(name)}</span></button>`;
+  }).join('');
+  $('#avOptions').innerHTML = avNoneTile() + (window.AvatarPics || []).map((id) =>
+    `<button type="button" class="av-tile ${avPick === id ? 'on' : ''}" data-avpic="${id}"><img src="/avatars/${id}.webp" alt="" loading="lazy"></button>`).join('');
+}
+/* One delegated click handler for the whole studio: tabs,
+ * character buttons, Surprise me, and every picture tile. */
+$('#avatarView').addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-avtab]');
+  if (tab) { avTab = tab.dataset.avtab; renderAvatarGallery(); return; }
+  const ch = e.target.closest('[data-avchar]');
+  if (ch) { avChar = ch.dataset.avchar; renderAvatarGallery(); return; }
+  if (e.target.closest('#avSurprise')) {
+    const chars = window.AvatarLib.DRESSUP_CHARACTERS;
+    avChar = chars[Math.floor(Math.random() * chars.length)].id;
+    avPick = avChar + '-o' + String(1 + Math.floor(Math.random() * window.AvatarLib.DRESSUP_LOOKS.length)).padStart(2, '0');
+    avTab = 'dress';
+    renderAvatarGallery();
+    return;
+  }
+  const tile = e.target.closest('[data-avpic]');
+  if (tile) {
+    avPick = tile.dataset.avpic || null;
+    if (avIsDress(avPick)) avChar = avPick.slice(0, 2);
+    renderAvatarGallery();
+  }
+});
 $('#btnMakeAvatar').addEventListener('click', openAvatarGallery);
 $('#avClose').addEventListener('click', closeAvatarGallery);
 document.addEventListener('keydown', (e) => {
