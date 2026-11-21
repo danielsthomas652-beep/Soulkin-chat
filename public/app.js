@@ -113,8 +113,7 @@ let currentView = 'feed';
 function showView(name) {
   currentView = name;
   ['feed', 'videos', 'people', 'friends', 'chat', 'map', 'profile'].forEach((v) => $('#view-' + v).classList.toggle('hidden', v !== name));
-  $$('.sidenav button').forEach((b) => b.classList.toggle('on', b.dataset.nav === name));
-  if (name !== 'videos') closeVideoDrawer(); // the controls drawer belongs to the Videos view only
+  $$('.bottomnav button').forEach((b) => b.classList.toggle('on', b.dataset.nav === name));
   if (name === 'videos') { ensureVideos(); resumeCurrentSlide(); }
   else pauseAllSlides();
   if (name === 'people') loadPeople();
@@ -124,13 +123,13 @@ function showView(name) {
   if (name === 'profile') loadProfile();
   window.scrollTo(0, 0);
 }
-$$('.sidenav button').forEach((b) => b.addEventListener('click', () => showView(b.dataset.nav)));
+$$('.bottomnav button').forEach((b) => b.addEventListener('click', () => showView(b.dataset.nav)));
 
 /* ================= swipe between pages =================
- * A clear left/right swipe moves between the main tabs in side-rail
+ * A clear left/right swipe moves between the main tabs in bottom-bar
  * order (Feed → Videos → People → Friends → Chat → Map → Profile). The Videos view
  * itself is skipped — its pager owns horizontal swiping there — and a
- * swipe that starts in a form field, the top bar or the side rail, an open
+ * swipe that starts in a form field, the top bar or the bottom bar, an open
  * overlay, a horizontally scrolling strip, or the friend map (Leaflet
  * owns panning there) never changes the page.
  * The gesture must travel ~60px and be mostly horizontal, so ordinary
@@ -157,7 +156,7 @@ document.addEventListener('touchend', (e) => {
   const start = swipeStart; swipeStart = null;
   if (currentView === 'videos' || anyOverlayOpen()) return;
   const t = start.target;
-  if (t && t.closest && (t.closest('input, textarea, select') || t.closest('.sidenav') || t.closest('.topbar') || t.closest('#mapEl') || insideHScroller(t))) return;
+  if (t && t.closest && (t.closest('input, textarea, select') || t.closest('.bottomnav') || t.closest('.topbar') || t.closest('#mapEl') || insideHScroller(t))) return;
   const dx = e.changedTouches[0].clientX - start.x;
   const dy = e.changedTouches[0].clientY - start.y;
   if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
@@ -203,42 +202,42 @@ function postCardHTML(p) {
     <div class="comments hidden" id="comments-${p.id}"></div>
   </article>`;
 }
-/* Video posts render as big TikTok-style cards: a tall dark stage
- * (~88vh, card widened toward edge-to-edge) with the clip
- * letterboxed (object-fit: contain — never cropped, never distorted)
- * over a blurred copy of itself. Controls are split small: a slim
- * rail of ~40px round buttons (Like / Comment / Share / Sound) on
- * the right edge, and the author + caption in a compact bar along
- * the bottom (small avatar + text, caption one line — tap it to
- * expand a long one). The rail buttons carry the same data-act
- * hooks as the classic card, so the existing like/comment/share/
- * report delegation drives them; data-rail="1" tells the like
- * handler to repaint them icon+count. Behavior (autoplay on scroll
- * into view, tap to pause/resume, song sync, the global Sound
- * ON/OFF choice) lives in wirePostMedia. */
+/* Video posts render as big cards: a tall dark stage (~88vh, card
+ * widened toward edge-to-edge) with the clip letterboxed
+ * (object-fit: contain — never cropped, never distorted) over a
+ * blurred copy of itself, and BELOW the stage a defined control
+ * bar on solid navy: the author + caption block, a divider, then a
+ * horizontal action row (Like / Comment / Share / Sound) — no
+ * buttons float over the video anymore. The caption is one line —
+ * tap it to expand a long one. The action buttons carry the same
+ * data-act hooks as the classic card, so the existing
+ * like/comment/share/report delegation drives them; data-rail="1"
+ * tells the like handler to repaint them icon+count+label.
+ * Behavior (autoplay on scroll into view, tap to pause/resume,
+ * song sync, the global Sound ON/OFF choice) lives in
+ * wirePostMedia. */
 function videoPostCardHTML(p, a, badge) {
   const song = songForPost(p);
   return `<article class="card tk-card" id="post-${p.id}">
     <div class="tk-stage">
       <video class="tk-bg" src="${esc(p.mediaUrl)}" playsinline loop muted preload="metadata" aria-hidden="true" tabindex="-1"></video>
       <video class="tk-video" src="${esc(p.mediaUrl)}" playsinline loop muted preload="metadata" data-post-video="${p.id}"></video>
-      <div class="tk-shade"></div>
       <div class="tk-play-ind"><span>▶</span></div>
       <button class="tk-report" data-act="report" data-id="${p.id}" type="button" aria-label="Report this post">${ICON.flag}</button>
-      <div class="tk-meta">
-        <div class="tk-author">${userAvatarHTML(a, 'sm')}
-          <div><div class="nm">${esc(a.displayName)}${badge}</div><div class="sub">@${esc(a.username)} · ${timeAgo(p.createdAt)}</div></div>
-        </div>
-        ${p.text ? `<p class="tk-caption">${esc(p.text)}</p>` : ''}
-        ${song ? `<div class="tk-song">🎵 ${esc(song.title)} — ${esc(song.artist)}</div>` : ''}
-      </div>
-      <div class="tk-rail">
-        <button class="tk-act ${p.likedByMe ? 'liked' : ''}" data-act="like" data-id="${p.id}" data-rail="1" type="button">${p.likedByMe ? ICON.heartFill : ICON.heart}<span class="cnt">${fmtCount(p.likeCount)}</span></button>
-        <button class="tk-act" data-act="comment" data-id="${p.id}" data-rail="1" type="button">${ICON.comment}<span class="cnt">${fmtCount(p.commentCount)}</span></button>
-        <button class="tk-act" data-act="share" data-id="${p.id}" data-rail="1" type="button">${ICON.share}<span class="cnt">Share</span></button>
-        <button class="tk-act feed-sound-btn ${soundOn ? 'on' : ''}" type="button" aria-label="Turn sound on or off">${soundOn ? '🔊' : '🔇'}</button>
-      </div>
       ${song ? `<audio data-post-audio="${p.id}" src="${esc(song.src)}" loop preload="none"></audio>` : ''}
+    </div>
+    <div class="tk-bar">
+      <div class="tk-author">${userAvatarHTML(a, 'sm')}
+        <div><div class="nm">${esc(a.displayName)}${badge}</div><div class="sub">@${esc(a.username)} · ${timeAgo(p.createdAt)}</div></div>
+      </div>
+      ${p.text ? `<p class="tk-caption">${esc(p.text)}</p>` : ''}
+      ${song ? `<div class="tk-song">🎵 ${esc(song.title)} — ${esc(song.artist)}</div>` : ''}
+      <div class="tk-actions">
+        <button class="tk-act ${p.likedByMe ? 'liked' : ''}" data-act="like" data-id="${p.id}" data-rail="1" type="button">${p.likedByMe ? ICON.heartFill : ICON.heart}<span class="cnt">${fmtCount(p.likeCount)}</span><span class="lbl">Like</span></button>
+        <button class="tk-act" data-act="comment" data-id="${p.id}" data-rail="1" type="button">${ICON.comment}<span class="cnt">${fmtCount(p.commentCount)}</span><span class="lbl">Comment</span></button>
+        <button class="tk-act" data-act="share" data-id="${p.id}" data-rail="1" type="button">${ICON.share}<span class="lbl">Share</span></button>
+        <button class="tk-act feed-sound-btn ${soundOn ? 'on' : ''}" type="button" aria-label="Turn sound on or off"><span class="snd">${soundOn ? '🔊' : '🔇'}</span><span class="lbl">Sound</span></button>
+      </div>
     </div>
   </article>`;
 }
@@ -305,15 +304,16 @@ function wirePostMedia(container) {
     if (stage) stage.addEventListener('click', (e) => {
       const cap = e.target.closest('.tk-caption');
       if (cap) { cap.classList.toggle('expanded'); return; } // tap a long caption to read it all
-      if (e.target.closest('button, a')) return; // rail / report / sound buttons have their own jobs
+      if (e.target.closest('button, a')) return; // report button has its own job (the action row lives below the stage)
       if (v.paused) playFeedVideo(v); else v.pause();
     });
     const obs = getFeedObserver();
     if (obs) obs.observe(v);
   });
 }
-/* the rail's sound button drives the same global Sound ON/OFF choice
- * as the Videos tab pill (setSound is defined with the videos code) */
+/* the card bar's sound button drives the same global Sound ON/OFF
+ * choice as the Videos tab pill (setSound is defined with the
+ * videos code) */
 document.addEventListener('click', (e) => { if (e.target.closest('.feed-sound-btn')) setSound(!soundOn); });
 async function loadFeed() {
   try {
@@ -335,7 +335,7 @@ document.addEventListener('click', async (e) => {
       $$(`[data-act="like"][data-id="${id}"]`).forEach((b) => {
         b.classList.toggle('liked', r.liked);
         b.innerHTML = b.dataset.rail
-          ? `${r.liked ? ICON.heartFill : ICON.heart}<span class="cnt">${fmtCount(r.likeCount)}</span>`
+          ? `${r.liked ? ICON.heartFill : ICON.heart}<span class="cnt">${fmtCount(r.likeCount)}</span><span class="lbl">Like</span>`
           : `${r.liked ? ICON.heartFill : ICON.heart}<span>Like${r.likeCount ? ' · ' + r.likeCount : ''}</span>`;
       });
     } else if (act === 'comment') {
@@ -745,73 +745,60 @@ function clipSong(v) {
   if (override && songsCache) { const s = songsCache.find((x) => x.id === override); if (s) return s; }
   return v.song || null;
 }
-/* A slide is now ALL stage: the video fills the whole slide (full
- * width, the pager's full height) with nothing sharing it — the old
- * side control column is gone. Only a slim author + caption line is
- * overlaid bottom-left, TikTok-style. Every control (Like, Comment,
- * Share, Song, Sound, Follow) lives in the slide-out drawer docked to
- * the right edge — see renderVideoDrawer below. */
+/* A slide is stage + a defined bottom control bar: the video fills
+ * the top of the slide (full width, the pager's big stage height),
+ * and directly under it — never floating over the picture — sits a
+ * solid bar with the author line + caption and one horizontal
+ * action row (Like, Comment, Share, Song, Sound, Follow). The bar
+ * is rendered by slideControlsHTML and re-rendered in place by
+ * renderSlideControls whenever counts or state change. */
 function slideHTML(v, i) {
   const song = clipSong(v);
   return `<div class="slide" data-slide="${i}">
     <div class="vid">
       <video src="${esc(v.src)}" playsinline loop muted preload="metadata" data-vid="${v.id}"></video>
       ${song ? `<audio data-clip-audio="${v.id}" src="${esc(song.src)}" loop preload="none"></audio>` : ''}
-      <div class="cap"><span class="who-line">${esc(v.creator.split(' ')[0])}</span> <span class="cat">${esc(v.cat)}</span><br>${esc(v.caption)}</div>
     </div>
+    <div class="vid-bar" data-vbar="${i}">${slideControlsHTML(v)}</div>
   </div>`;
+}
+function slideControlsHTML(v) {
+  const song = clipSong(v);
+  return `<div class="vb-who">${userAvatarHTML({ displayName: v.creator, username: v.creator, avatar: null }, 'sm')}
+      <div class="vb-who-txt"><span class="nm">${esc(v.creator.split(' ')[0])}</span> <span class="cat">${esc(v.cat)}</span><div class="cap">${esc(v.caption)}</div></div>
+      <button class="follow-btn ${v.following ? 'following' : ''}" data-vfollow="${v.id}" type="button">${v.following ? 'Following' : 'Follow'}</button></div>
+    <div class="vb-song">${song ? '🎵 ' + esc(song.title) + ' — ' + esc(song.artist) : 'No song on this one'}</div>
+    <div class="vb-actions">
+      <button class="vb-act ${v.likedByMe ? 'liked' : ''}" data-vlike="${v.id}" type="button">${v.likedByMe ? ICON.heartFill : ICON.heart}<span class="cnt">${fmtCount(v.likeCount)}</span><span class="lbl">Like</span></button>
+      <button class="vb-act" data-vcomment="${v.id}" type="button">${ICON.comment}<span class="cnt">${fmtCount(v.commentCount)}</span><span class="lbl">Comment</span></button>
+      <button class="vb-act" data-vshare="${v.id}" type="button">${ICON.share}<span class="lbl">Share</span></button>
+      <button class="vb-act" data-vmusic="${v.id}" type="button">${ICON.note}<span class="cnt">${song ? esc(shortTitle(song.title)) : 'Add'}</span><span class="lbl">Song</span></button>
+      <button class="vb-act" data-vsound="1" type="button"><span class="vb-emoji">${soundOn ? '🔊' : '🔇'}</span><span class="lbl">${soundOn ? 'Sound on' : 'Sound off'}</span></button>
+    </div>`;
 }
 function fmtCount(n) { return n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K' : String(n || 0); }
 function shortTitle(t) { return t.length > 9 ? t.slice(0, 8) + '…' : t; }
 
-/* ================= videos: slide-out controls drawer =================
- * All the Videos controls live in ONE panel docked to the right edge
- * of the screen, hidden by default so the playing video stays big.
- * It is per-view, not per-slide: a single shared panel whose buttons
- * are re-bound to the current video every time it opens and every
- * time the slide changes (renderVideoDrawer), and it closes whenever
- * the slide changes. Ways in: tap the "‹ Controls" edge tab, or swipe
- * left starting from the right-edge strip of the video. Ways out:
- * swipe right anywhere, swipe on the pager (an open panel never traps
- * the pager — the first swipe closes it instead of paging), tap the
- * video, tap the edge tab again, or change slides. The buttons carry
- * the same data-vlike / data-vfollow / data-vcomment / data-vmusic
- * hooks the old side column used, plus data-vshare / data-vsound, and
- * are handled by the drawer click listener below — same APIs, same
- * behavior. */
-function renderVideoDrawer() {
-  const drawer = $('#vdrawer');
-  if (!drawer) return;
+/* ================= videos: bottom control bar =================
+ * Every Videos control is always visible in the current slide's own
+ * bottom bar — no hidden panels, no edge gestures. The bar belongs
+ * to its slide (rendered by slideControlsHTML inside slideHTML) and
+ * is re-rendered in place by renderSlideControls whenever a like,
+ * follow, song or sound change alters what it shows. The buttons
+ * carry the same data-vlike / data-vfollow / data-vcomment /
+ * data-vmusic hooks the old side column used, plus data-vshare /
+ * data-vsound, and are handled by the pager click listener below —
+ * same APIs, same behavior. */
+function renderSlideControls() {
+  const bar = $(`#pager .slide[data-slide="${currentSlide}"] .vid-bar`);
+  if (!bar) return;
   const v = videosCache[currentSlide];
-  if (!v) { drawer.innerHTML = ''; return; }
-  const song = clipSong(v);
-  drawer.innerHTML = `
-    <div class="vd-who">${userAvatarHTML({ displayName: v.creator, username: v.creator, avatar: null }, 'md')}<span class="nm">${esc(v.creator.split(' ')[0])}</span>
-      <button class="follow-btn ${v.following ? 'following' : ''}" data-vfollow="${v.id}" type="button">${v.following ? 'Following' : 'Follow'}</button></div>
-    <button class="vd-act ${v.likedByMe ? 'liked' : ''}" data-vlike="${v.id}" type="button">${v.likedByMe ? ICON.heartFill : ICON.heart}<span class="cnt">${fmtCount(v.likeCount)}</span><span class="lbl">Like</span></button>
-    <button class="vd-act" data-vcomment="${v.id}" type="button">${ICON.comment}<span class="cnt">${v.commentCount || ''}</span><span class="lbl">Comment</span></button>
-    <button class="vd-act" data-vshare="${v.id}" type="button">${ICON.share}<span class="cnt">&nbsp;</span><span class="lbl">Share</span></button>
-    <div class="vd-song">${song ? '🎵 ' + esc(song.title) + '<br>' + esc(song.artist) : 'No song on this one'}</div>
-    <button class="vd-act" data-vmusic="${v.id}" type="button">${ICON.note}<span class="cnt">${song ? esc(shortTitle(song.title)) : 'Add'}</span><span class="lbl">Song</span></button>
-    <button class="vd-act" data-vsound="1" type="button"><span class="vd-emoji">${soundOn ? '🔊' : '🔇'}</span><span class="cnt">&nbsp;</span><span class="lbl">${soundOn ? 'Sound on' : 'Sound off'}</span></button>`;
+  if (!v) { bar.innerHTML = ''; return; }
+  bar.innerHTML = slideControlsHTML(v);
 }
-function videoDrawerOpen() { const d = $('#vdrawer'); return !!d && d.classList.contains('open'); }
-function openVideoDrawer() {
-  renderVideoDrawer(); // always bound to the video on screen right now
-  const d = $('#vdrawer'); if (!d) return;
-  d.classList.add('open');
-  d.setAttribute('aria-hidden', 'false');
-  $('#vdrawerTab').classList.add('tucked');
-}
-function closeVideoDrawer() {
-  const d = $('#vdrawer'); if (!d) return;
-  d.classList.remove('open');
-  d.setAttribute('aria-hidden', 'true');
-  const tab = $('#vdrawerTab'); if (tab) tab.classList.remove('tucked');
-}
-$('#vdrawerTab').addEventListener('click', () => { if (videoDrawerOpen()) closeVideoDrawer(); else openVideoDrawer(); });
-/* the drawer's buttons — the same actions the slides used to carry */
-$('#vdrawer').addEventListener('click', async (e) => {
+/* the control bar's buttons — delegated on the pager, since every
+ * slide carries its own bar */
+$('#pager').addEventListener('click', async (e) => {
   const like = e.target.closest('[data-vlike]');
   const follow = e.target.closest('[data-vfollow]');
   const comment = e.target.closest('[data-vcomment]');
@@ -823,12 +810,12 @@ $('#vdrawer').addEventListener('click', async (e) => {
       const id = like.dataset.vlike;
       const r = await api(`/api/videos/${id}/like`, { method: 'POST', body: '{}' });
       const v = videosCache.find((x) => x.id === id); if (v) { v.likedByMe = r.liked; v.likeCount = r.likeCount; }
-      renderVideoDrawer();
+      renderSlideControls();
     } else if (follow) {
       const id = follow.dataset.vfollow;
       const r = await api(`/api/videos/${id}/follow`, { method: 'POST', body: '{}' });
       videosCache.forEach((v) => { if (v.creator === r.creator) v.following = r.following; });
-      renderVideoDrawer();
+      renderSlideControls();
       toast(r.following ? 'Following ' + r.creator + ' ⭐' : 'Unfollowed');
     } else if (comment) {
       openCommentsSheet({ kind: 'video', id: comment.dataset.vcomment });
@@ -839,58 +826,10 @@ $('#vdrawer').addEventListener('click', async (e) => {
       try { await navigator.clipboard.writeText(link); toast('Link copied — send it to a friend! 🔗'); }
       catch (ex) { window.prompt('Copy this link:', link); }
     } else if (sound) {
-      setSound(!soundOn); // renderSoundPills repaints the drawer too
+      setSound(!soundOn); // renderSoundPills repaints the slide bars too
     }
   } catch (ex) { toast(ex.message); }
 });
-/* a rightward swipe on the panel itself tucks it away */
-let vdPanelTouch = null;
-$('#vdrawer').addEventListener('touchstart', (e) => {
-  vdPanelTouch = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
-}, { passive: true });
-$('#vdrawer').addEventListener('touchend', (e) => {
-  if (!vdPanelTouch) return;
-  const dx = e.changedTouches[0].clientX - vdPanelTouch.x;
-  const dy = e.changedTouches[0].clientY - vdPanelTouch.y;
-  vdPanelTouch = null;
-  if (dx > 36 && Math.abs(dx) > Math.abs(dy) * 1.4) closeVideoDrawer();
-}, { passive: true });
-/* Edge gestures on the pager. The pager's own sideways scrolling is
- * untouched for ordinary swipes — this layer only watches for (a) a
- * leftward swipe that STARTS in the ~24px strip at the video's right
- * edge, which pulls the drawer out instead of paging (touchmove is
- * preventDefaulted so the pager doesn't also scroll), and (b) any
- * clear horizontal swipe while the drawer is open, which closes the
- * drawer instead of paging — the open panel never traps the pager. */
-let vdTouch = null;
-$('#pager').addEventListener('touchstart', (e) => {
-  if (e.touches.length !== 1) { vdTouch = null; return; }
-  const t = e.touches[0];
-  const vid = $('#pager').querySelector(`.slide[data-slide="${currentSlide}"] video`) || $('#pager').querySelector('video');
-  const rect = vid ? vid.getBoundingClientRect() : $('#pager').getBoundingClientRect();
-  vdTouch = {
-    x: t.clientX, y: t.clientY,
-    edge: t.clientX >= rect.right - 24 && t.clientX <= rect.right + 4 && t.clientY >= rect.top && t.clientY <= rect.bottom,
-  };
-}, { passive: true });
-$('#pager').addEventListener('touchmove', (e) => {
-  if (!vdTouch || e.touches.length !== 1) return;
-  const dx = e.touches[0].clientX - vdTouch.x;
-  const dy = e.touches[0].clientY - vdTouch.y;
-  if (Math.abs(dx) < Math.abs(dy) * 1.4) return; // mostly vertical — not our gesture
-  if (videoDrawerOpen()) { if (Math.abs(dx) > 12) e.preventDefault(); return; }
-  if (vdTouch.edge && dx < -12) e.preventDefault(); // hold the pager still; the drawer is coming
-}, { passive: false });
-$('#pager').addEventListener('touchend', (e) => {
-  if (!vdTouch) return;
-  const start = vdTouch; vdTouch = null;
-  const dx = e.changedTouches[0].clientX - start.x;
-  const dy = e.changedTouches[0].clientY - start.y;
-  if (Math.abs(dx) < 30 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
-  if (videoDrawerOpen()) { closeVideoDrawer(); return; } // first swipe closes the panel, never pages
-  if (start.edge && dx < 0) openVideoDrawer();
-});
-
 async function ensureVideos() {
   if (videosLoaded) return;
   videosLoaded = true;
@@ -944,7 +883,7 @@ function resumeCurrentSlide() { if (videosLoaded && !$('#view-videos').classList
 function setSlide(i, scroll) {
   const n = videosCache.length; if (!n) return;
   i = Math.max(0, Math.min(n - 1, i));
-  if (i !== currentSlide) { pauseSlide(currentSlide); closeVideoDrawer(); } // the drawer never follows to another video
+  if (i !== currentSlide) pauseSlide(currentSlide); // each slide carries its own control bar — nothing to rebind
   currentSlide = i;
   if (scroll !== false) { const pager = $('#pager'); pager.scrollTo({ left: i * pager.clientWidth, behavior: 'smooth' }); }
   updatePagerUI();
@@ -960,8 +899,8 @@ function renderSoundPills() {
   const label = soundOn ? '🔊 Sound ON' : '🔇 Sound OFF';
   const pill = $('#soundPill'); pill.textContent = label; pill.classList.toggle('on', soundOn);
   const vp = $('#viewerSound'); vp.textContent = label; vp.classList.toggle('on', soundOn);
-  $$('.feed-sound-btn').forEach((b) => { b.textContent = soundOn ? '🔊' : '🔇'; b.classList.toggle('on', soundOn); });
-  if (videosCache.length) renderVideoDrawer(); // the drawer's Sound button + counts stay in sync
+  $$('.feed-sound-btn').forEach((b) => { const s = b.querySelector('.snd'); if (s) s.textContent = soundOn ? '🔊' : '🔇'; b.classList.toggle('on', soundOn); });
+  if (videosCache.length) renderSlideControls(); // the current slide's Sound button + counts stay in sync
 }
 function setSound(on) {
   soundOn = on;
@@ -982,17 +921,15 @@ $('#pager').addEventListener('scroll', () => {
   scrollTick = setTimeout(() => {
     const pager = $('#pager');
     const i = Math.round(pager.scrollLeft / pager.clientWidth);
-    if (i !== currentSlide && videosCache[i]) { pauseSlide(currentSlide); closeVideoDrawer(); currentSlide = i; updatePagerUI(); playSlide(i); }
+    if (i !== currentSlide && videosCache[i]) { pauseSlide(currentSlide); currentSlide = i; updatePagerUI(); playSlide(i); }
   }, 90);
 });
-/* tap a slide video -> full-screen viewer; with the controls drawer
- * open, a tap tucks the drawer away instead */
+/* tap a slide video -> full-screen viewer (the control bar's own
+ * buttons are handled by the delegated bar listener above and never
+ * reach this one — they are not the video element) */
 $('#pager').addEventListener('click', (e) => {
   const vid = e.target.closest('video[data-vid]');
-  if (vid) {
-    if (videoDrawerOpen()) { closeVideoDrawer(); return; }
-    openViewer(currentSlide);
-  }
+  if (vid) openViewer(currentSlide);
 });
 
 /* ================= full-screen viewer ================= */
@@ -1000,7 +937,6 @@ let viewerIdx = 0;
 function openViewer(i) {
   viewerIdx = i;
   pauseAllSlides();
-  closeVideoDrawer();
   $('#viewer').classList.remove('hidden');
   loadViewerClip();
 }
@@ -1094,11 +1030,11 @@ function commentHTML(c) {
   return `<div class="comment">${userAvatarHTML(a, 'sm')}<div class="bubble"><b>${esc(a.displayName)}</b> ${esc(c.text)}<br><span style="color:var(--muted); font-size:12px">${timeAgo(c.createdAt)}</span></div></div>`;
 }
 function renderPagerSoft() {
-  // refresh the slides + drawer counts without losing scroll position
+  // refresh the slides (each carries its own control bar) without
+  // losing scroll position
   const pager = $('#pager'); const left = pager.scrollLeft;
   pager.innerHTML = videosCache.map(slideHTML).join('');
   pager.scrollLeft = left;
-  renderVideoDrawer();
   playSlide(currentSlide);
 }
 function openReportSheet(postId) {

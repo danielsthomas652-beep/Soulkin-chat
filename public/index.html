@@ -21,8 +21,11 @@
 <!-- ============ AUTH ============ -->
 <div id="authView" class="auth-wrap hidden">
   <div class="auth-card">
-    <div class="auth-logo"><img src="/logo.webp" alt="mLT. chat"></div>
-    <p class="auth-tag">Your people. Your moments. 🎈</p>
+    <div class="auth-head">
+      <div class="auth-logo"><img src="/logo.webp" alt="mLT. chat"></div>
+      <p class="auth-tag">Your people. Your moments. 🎈</p>
+    </div>
+    <div class="auth-body">
     <div id="authErr" class="err hidden"></div>
     <div class="auth-tabs">
       <button id="tabLogin" class="on" type="button">Log in</button>
@@ -47,6 +50,7 @@
       </label>
       <button class="btn red block" id="authSubmit" type="submit">Log in</button>
     </form>
+    </div>
   </div>
 </div>
 
@@ -90,8 +94,6 @@
         <button class="sound-pill" id="soundPill" type="button">🔇 Sound OFF</button>
       </div>
       <div class="pager" id="pager"></div>
-      <button class="vdrawer-tab" id="vdrawerTab" type="button" aria-label="Show video controls">‹<span>Controls</span></button>
-      <aside class="vdrawer" id="vdrawer" aria-hidden="true"></aside>
     </section>
 
     <!-- PEOPLE -->
@@ -168,7 +170,7 @@
     </section>
   </main>
 
-  <nav class="sidenav">
+  <nav class="bottomnav">
       <button data-nav="feed" class="on" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>Feed</button>
       <button data-nav="videos" type="button"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>Videos</button>
       <button data-nav="people" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/><circle cx="17.5" cy="9" r="2.6"/><path d="M16 15.2c2.3.3 4.3 1.8 5 4.3"/></svg>People</button>
