@@ -1,4 +1,5 @@
-// Video catalog for the Videos tab: free-license clips (Pexels / Mixkit).
+// Video catalog for the Videos tab: free-license clips (Pexels / Mixkit /
+// Coverr — the Coverr expansion entries at the bottom are stored locally).
 // EVERY src was probed in this build (curl range request -> HTTP 200/206, and
 // ffprobe for streams/duration). Clips with hasOwnAudio=false have NO audio
 // track at all; each carries a matched free-license library song (songId,
@@ -495,6 +496,445 @@ const VIDEOS = [
   "baseLikes": 1204,
   "hasOwnAudio": false,
   "songId": "s16"
+ },
+ // ----- Funny / real-life expansion (36 clips, Nov 2026) -----
+ // Source: Coverr stock library (free license, commercial use, no
+ // attribution required). Files were downloaded and verified with
+ // ffprobe in this build, then stored locally under public/videos/
+ // (960px wide, faststart). Every one is REAL footage and SILENT
+ // (no audio stream), so each carries a matched Kevin MacLeod song
+ // exactly like the silent clips above.
+ {
+  "id": "f1",
+  "cat": "Pets",
+  "creator": "Rosa Alvarez",
+  "handle": "@rosa.and.biscuit",
+  "caption": "Leaf day is the best day — somebody found a treasure",
+  "src": "/videos/f1.mp4",
+  "dur": 22,
+  "baseLikes": 2874,
+  "hasOwnAudio": false,
+  "songId": "s16"
+ },
+ {
+  "id": "f2",
+  "cat": "Pets",
+  "creator": "Alex Morgan",
+  "handle": "@alex.plays",
+  "caption": "Ball caught mid-air — this dog does not miss",
+  "src": "/videos/f2.mp4",
+  "dur": 14,
+  "baseLikes": 3411,
+  "hasOwnAudio": false,
+  "songId": "s2"
+ },
+ {
+  "id": "f3",
+  "cat": "Pets",
+  "creator": "Rosa Alvarez",
+  "handle": "@rosa.and.biscuit",
+  "caption": "Grass so good you just have to roll in it",
+  "src": "/videos/f3.mp4",
+  "dur": 23,
+  "baseLikes": 2950,
+  "hasOwnAudio": false,
+  "songId": "s2"
+ },
+ {
+  "id": "f4",
+  "cat": "Pets",
+  "creator": "Hannah Miller",
+  "handle": "@hannah.grows",
+  "caption": "The tiniest kitten with the biggest yawn",
+  "src": "/videos/f4.mp4",
+  "dur": 10,
+  "baseLikes": 3887,
+  "hasOwnAudio": false,
+  "songId": "s16"
+ },
+ {
+  "id": "f5",
+  "cat": "Comedy",
+  "creator": "Chris Doyle",
+  "handle": "@chris.does.comedy",
+  "caption": "She showed her dog a statue of a cat — he has questions",
+  "src": "/videos/f5.mp4",
+  "dur": 23,
+  "baseLikes": 2543,
+  "hasOwnAudio": false,
+  "songId": "s17"
+ },
+ {
+  "id": "f6",
+  "cat": "Pets",
+  "creator": "Sam Whitaker",
+  "handle": "@sam.goes",
+  "caption": "Morning run with my border collie — she sets the pace",
+  "src": "/videos/f6.mp4",
+  "dur": 15,
+  "baseLikes": 1768,
+  "hasOwnAudio": false,
+  "songId": "s7"
+ },
+ {
+  "id": "f7",
+  "cat": "Comedy",
+  "creator": "Chris Doyle",
+  "handle": "@chris.does.comedy",
+  "caption": "The cat has claimed the breakfast table and everything on it",
+  "src": "/videos/f7.mp4",
+  "dur": 26,
+  "baseLikes": 3654,
+  "hasOwnAudio": false,
+  "songId": "s2"
+ },
+ {
+  "id": "f8",
+  "cat": "Pets",
+  "creator": "Rosa Alvarez",
+  "handle": "@rosa.and.biscuit",
+  "caption": "Ball in mouth, couch claimed — his work here is done",
+  "src": "/videos/f8.mp4",
+  "dur": 14,
+  "baseLikes": 2210,
+  "hasOwnAudio": false,
+  "songId": "s16"
+ },
+ {
+  "id": "f9",
+  "cat": "Pets",
+  "creator": "Jordan Ellis",
+  "handle": "@jordan.cooks",
+  "caption": "The goats run this farm and they know it",
+  "src": "/videos/f9.mp4",
+  "dur": 9,
+  "baseLikes": 1987,
+  "hasOwnAudio": false,
+  "songId": "s8"
+ },
+ {
+  "id": "f10",
+  "cat": "Pets",
+  "creator": "Hannah Miller",
+  "handle": "@hannah.grows",
+  "caption": "Chew toy: 0. This good boy: 1.",
+  "src": "/videos/f10.mp4",
+  "dur": 12,
+  "baseLikes": 2439,
+  "hasOwnAudio": false,
+  "songId": "s1"
+ },
+ {
+  "id": "f11",
+  "cat": "Pets",
+  "creator": "Sam Whitaker",
+  "handle": "@sam.goes",
+  "caption": "Two border collies, one yard, zero chill",
+  "src": "/videos/f11.mp4",
+  "dur": 13,
+  "baseLikes": 2076,
+  "hasOwnAudio": false,
+  "songId": "s2"
+ },
+ {
+  "id": "f12",
+  "cat": "Pets",
+  "creator": "Jordan Ellis",
+  "handle": "@jordan.cooks",
+  "caption": "The rooster inspects his kingdom every morning",
+  "src": "/videos/f12.mp4",
+  "dur": 15,
+  "baseLikes": 1642,
+  "hasOwnAudio": false,
+  "songId": "s8"
+ },
+ {
+  "id": "f13",
+  "cat": "Comedy",
+  "creator": "Emily Carter",
+  "handle": "@emily.c",
+  "caption": "Cat on the table, staring her down — a tiny standoff",
+  "src": "/videos/f13.mp4",
+  "dur": 31,
+  "baseLikes": 3122,
+  "hasOwnAudio": false,
+  "songId": "s17"
+ },
+ {
+  "id": "f14",
+  "cat": "Comedy",
+  "creator": "Grace Liu",
+  "handle": "@grace.reads",
+  "caption": "Working late but the joke still landed",
+  "src": "/videos/f14.mp4",
+  "dur": 18,
+  "baseLikes": 1873,
+  "hasOwnAudio": false,
+  "songId": "s1"
+ },
+ {
+  "id": "f15",
+  "cat": "Comedy",
+  "creator": "Sam Whitaker",
+  "handle": "@sam.goes",
+  "caption": "Coffee with friends hits different when everybody is laughing",
+  "src": "/videos/f15.mp4",
+  "dur": 22,
+  "baseLikes": 2261,
+  "hasOwnAudio": false,
+  "songId": "s15"
+ },
+ {
+  "id": "f16",
+  "cat": "Comedy",
+  "creator": "Chris Doyle",
+  "handle": "@chris.does.comedy",
+  "caption": "They tried to keep a straight face for the camera — failed",
+  "src": "/videos/f16.mp4",
+  "dur": 16,
+  "baseLikes": 2748,
+  "hasOwnAudio": false,
+  "songId": "s1"
+ },
+ {
+  "id": "f17",
+  "cat": "Comedy",
+  "creator": "Emily Carter",
+  "handle": "@emily.c",
+  "caption": "One joke and the whole group lost it",
+  "src": "/videos/f17.mp4",
+  "dur": 17,
+  "baseLikes": 3305,
+  "hasOwnAudio": false,
+  "songId": "s15"
+ },
+ {
+  "id": "f18",
+  "cat": "Comedy",
+  "creator": "Priya Nair",
+  "handle": "@priya.wanders",
+  "caption": "Whatever is on that phone, it got her good",
+  "src": "/videos/f18.mp4",
+  "dur": 6,
+  "baseLikes": 2417,
+  "hasOwnAudio": false,
+  "songId": "s1"
+ },
+ {
+  "id": "f19",
+  "cat": "Comedy",
+  "creator": "Marcus Reed",
+  "handle": "@marcus.reel",
+  "caption": "He watched the video three times and laughed harder each time",
+  "src": "/videos/f19.mp4",
+  "dur": 13,
+  "baseLikes": 1983,
+  "hasOwnAudio": false,
+  "songId": "s4"
+ },
+ {
+  "id": "f20",
+  "cat": "Comedy",
+  "creator": "Nora Bennett",
+  "handle": "@nora.b",
+  "caption": "She heard the joke and simply could not hold it together",
+  "src": "/videos/f20.mp4",
+  "dur": 11,
+  "baseLikes": 3560,
+  "hasOwnAudio": false,
+  "songId": "s1"
+ },
+ {
+  "id": "f21",
+  "cat": "Comedy",
+  "creator": "Grace Liu",
+  "handle": "@grace.reads",
+  "caption": "Campus giggles — class has not even started yet",
+  "src": "/videos/f21.mp4",
+  "dur": 16,
+  "baseLikes": 1544,
+  "hasOwnAudio": false,
+  "songId": "s9"
+ },
+ {
+  "id": "f22",
+  "cat": "Comedy",
+  "creator": "Omar Haddad",
+  "handle": "@omar.rides",
+  "caption": "Two old friends, one story they will never stop laughing about",
+  "src": "/videos/f22.mp4",
+  "dur": 17,
+  "baseLikes": 1719,
+  "hasOwnAudio": false,
+  "songId": "s4"
+ },
+ {
+  "id": "f23",
+  "cat": "Comedy",
+  "creator": "Maya Chen",
+  "handle": "@maya.sings",
+  "caption": "Pure joy — the kind of laugh that is contagious",
+  "src": "/videos/f23.mp4",
+  "dur": 10,
+  "baseLikes": 2988,
+  "hasOwnAudio": false,
+  "songId": "s1"
+ },
+ {
+  "id": "f24",
+  "cat": "Comedy",
+  "creator": "Hannah Miller",
+  "handle": "@hannah.grows",
+  "caption": "Playtime with the toy animals — serious business",
+  "src": "/videos/f24.mp4",
+  "dur": 20,
+  "baseLikes": 2130,
+  "hasOwnAudio": false,
+  "songId": "s16"
+ },
+ {
+  "id": "f25",
+  "cat": "Comedy",
+  "creator": "Chris Doyle",
+  "handle": "@chris.does.comedy",
+  "caption": "He waited behind the corner for the perfect jump scare",
+  "src": "/videos/f25.mp4",
+  "dur": 18,
+  "baseLikes": 2871,
+  "hasOwnAudio": false,
+  "songId": "s17"
+ },
+ {
+  "id": "f26",
+  "cat": "Comedy",
+  "creator": "Emily Carter",
+  "handle": "@emily.c",
+  "caption": "Balloon games with mom never get old",
+  "src": "/videos/f26.mp4",
+  "dur": 10,
+  "baseLikes": 1905,
+  "hasOwnAudio": false,
+  "songId": "s1"
+ },
+ {
+  "id": "f27",
+  "cat": "Comedy",
+  "creator": "David Okafor",
+  "handle": "@david.o",
+  "caption": "Ice cream on her face — she should have seen it coming",
+  "src": "/videos/f27.mp4",
+  "dur": 16,
+  "baseLikes": 3244,
+  "hasOwnAudio": false,
+  "songId": "s2"
+ },
+ {
+  "id": "f28",
+  "cat": "Dance",
+  "creator": "Lena Torres",
+  "handle": "@lena.moves",
+  "caption": "Dancing in a field because the mood said so",
+  "src": "/videos/f28.mp4",
+  "dur": 14,
+  "baseLikes": 1752,
+  "hasOwnAudio": false,
+  "songId": "s11"
+ },
+ {
+  "id": "f29",
+  "cat": "Dance",
+  "creator": "David Okafor",
+  "handle": "@david.o",
+  "caption": "Empty garage, full routine — he is in his own world",
+  "src": "/videos/f29.mp4",
+  "dur": 17,
+  "baseLikes": 2089,
+  "hasOwnAudio": false,
+  "songId": "s6"
+ },
+ {
+  "id": "f30",
+  "cat": "Dance",
+  "creator": "Lena Torres",
+  "handle": "@lena.moves",
+  "caption": "Beach play-fight turned dance break",
+  "src": "/videos/f30.mp4",
+  "dur": 13,
+  "baseLikes": 1467,
+  "hasOwnAudio": false,
+  "songId": "s14"
+ },
+ {
+  "id": "f31",
+  "cat": "Sports",
+  "creator": "Alex Morgan",
+  "handle": "@alex.plays",
+  "caption": "Clean jump at the skate park — stuck the landing",
+  "src": "/videos/f31.mp4",
+  "dur": 14,
+  "baseLikes": 1836,
+  "hasOwnAudio": false,
+  "songId": "s7"
+ },
+ {
+  "id": "f32",
+  "cat": "Sports",
+  "creator": "Omar Haddad",
+  "handle": "@omar.rides",
+  "caption": "The trick did not land, but the helmet did its job",
+  "src": "/videos/f32.mp4",
+  "dur": 9,
+  "baseLikes": 1294,
+  "hasOwnAudio": false,
+  "songId": "s12"
+ },
+ {
+  "id": "f33",
+  "cat": "Sports",
+  "creator": "Alex Morgan",
+  "handle": "@alex.plays",
+  "caption": "Full-send stunt off the ramp",
+  "src": "/videos/f33.mp4",
+  "dur": 10,
+  "baseLikes": 2215,
+  "hasOwnAudio": false,
+  "songId": "s11"
+ },
+ {
+  "id": "f34",
+  "cat": "Comedy",
+  "creator": "Sam Whitaker",
+  "handle": "@sam.goes",
+  "caption": "Snowball fight rules: there are no rules",
+  "src": "/videos/f34.mp4",
+  "dur": 12,
+  "baseLikes": 2563,
+  "hasOwnAudio": false,
+  "songId": "s17"
+ },
+ {
+  "id": "f35",
+  "cat": "Comedy",
+  "creator": "Priya Nair",
+  "handle": "@priya.wanders",
+  "caption": "He surprised her with a giant panda — her face says it all",
+  "src": "/videos/f35.mp4",
+  "dur": 22,
+  "baseLikes": 3077,
+  "hasOwnAudio": false,
+  "songId": "s9"
+ },
+ {
+  "id": "f36",
+  "cat": "Comedy",
+  "creator": "Chris Doyle",
+  "handle": "@chris.does.comedy",
+  "caption": "Three friends, one play-fight, zero winners",
+  "src": "/videos/f36.mp4",
+  "dur": 23,
+  "baseLikes": 2341,
+  "hasOwnAudio": false,
+  "songId": "s2"
  }
 ];
 module.exports = { VIDEOS };

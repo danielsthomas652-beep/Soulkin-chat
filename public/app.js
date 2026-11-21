@@ -204,15 +204,18 @@ function postCardHTML(p) {
   </article>`;
 }
 /* Video posts render as big TikTok-style cards: a tall dark stage
- * (~84vh, full card width) with the clip letterboxed (object-fit:
- * contain — never cropped, never distorted) over a blurred copy of
- * itself, the author + caption overlaid bottom-left, and a vertical
- * action rail (Like / Comment / Share / Sound) on the right edge.
- * The rail buttons carry the same data-act hooks as the classic card,
- * so the existing like/comment/share/report delegation drives them;
- * data-rail="1" tells the like handler to repaint them icon+count.
- * Behavior (autoplay on scroll into view, tap to pause/resume, song
- * sync, the global Sound ON/OFF choice) lives in wirePostMedia. */
+ * (~88vh, card widened toward edge-to-edge) with the clip
+ * letterboxed (object-fit: contain — never cropped, never distorted)
+ * over a blurred copy of itself. Controls are split small: a slim
+ * rail of ~40px round buttons (Like / Comment / Share / Sound) on
+ * the right edge, and the author + caption in a compact bar along
+ * the bottom (small avatar + text, caption one line — tap it to
+ * expand a long one). The rail buttons carry the same data-act
+ * hooks as the classic card, so the existing like/comment/share/
+ * report delegation drives them; data-rail="1" tells the like
+ * handler to repaint them icon+count. Behavior (autoplay on scroll
+ * into view, tap to pause/resume, song sync, the global Sound
+ * ON/OFF choice) lives in wirePostMedia. */
 function videoPostCardHTML(p, a, badge) {
   const song = songForPost(p);
   return `<article class="card tk-card" id="post-${p.id}">
@@ -223,7 +226,7 @@ function videoPostCardHTML(p, a, badge) {
       <div class="tk-play-ind"><span>▶</span></div>
       <button class="tk-report" data-act="report" data-id="${p.id}" type="button" aria-label="Report this post">${ICON.flag}</button>
       <div class="tk-meta">
-        <div class="tk-author">${userAvatarHTML(a, 'md')}
+        <div class="tk-author">${userAvatarHTML(a, 'sm')}
           <div><div class="nm">${esc(a.displayName)}${badge}</div><div class="sub">@${esc(a.username)} · ${timeAgo(p.createdAt)}</div></div>
         </div>
         ${p.text ? `<p class="tk-caption">${esc(p.text)}</p>` : ''}
@@ -300,6 +303,8 @@ function wirePostMedia(container) {
     });
     if (audio) v.addEventListener('seeked', () => { if (audio.duration) audio.currentTime = v.currentTime % audio.duration; });
     if (stage) stage.addEventListener('click', (e) => {
+      const cap = e.target.closest('.tk-caption');
+      if (cap) { cap.classList.toggle('expanded'); return; } // tap a long caption to read it all
       if (e.target.closest('button, a')) return; // rail / report / sound buttons have their own jobs
       if (v.paused) playFeedVideo(v); else v.pause();
     });

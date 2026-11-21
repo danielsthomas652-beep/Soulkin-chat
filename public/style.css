@@ -106,8 +106,8 @@ input,textarea,select{font:inherit}
 .comment-form button{background:var(--navy); color:#fff; border-radius:999px; padding:9px 16px; font-weight:700}
 
 /* ---------- feed: TikTok-style video cards ---------- */
-.card.tk-card{padding:0; overflow:hidden; background:#000; border-color:#0c1526}
-.tk-stage{position:relative; height:min(84vh,760px); min-height:430px; background:#000; overflow:hidden}
+.card.tk-card{padding:0; overflow:hidden; background:#000; border-color:#0c1526; margin-left:-10px; margin-right:-10px; border-radius:12px}
+.tk-stage{position:relative; height:min(88vh,820px); min-height:430px; background:#000; overflow:hidden}
 .tk-stage video.tk-bg{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; filter:blur(28px) brightness(.55); transform:scale(1.25); display:block}
 .tk-stage video.tk-video{position:absolute; inset:0; width:100%; height:100%; object-fit:contain; display:block}
 .tk-shade{position:absolute; left:0; right:0; bottom:0; height:46%; background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.72)); pointer-events:none}
@@ -116,18 +116,19 @@ input,textarea,select{font:inherit}
 .tk-stage.is-paused.was-live .tk-play-ind{opacity:1}
 .tk-report{position:absolute; top:10px; right:10px; z-index:3; width:36px; height:36px; border-radius:50%; background:rgba(0,0,0,.35); color:#fff; display:flex; align-items:center; justify-content:center}
 .tk-report svg{width:18px; height:18px}
-.tk-meta{position:absolute; left:12px; right:86px; bottom:12px; color:#fff; z-index:3}
-.tk-author{display:flex; gap:9px; align-items:center}
-.tk-author .nm{font-weight:800; color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.65)}
-.tk-author .sub{font-size:13px; color:rgba(255,255,255,.85); text-shadow:0 1px 4px rgba(0,0,0,.65)}
-.tk-caption{margin:8px 0 0; font-size:15px; line-height:1.4; white-space:pre-wrap; word-wrap:break-word; text-shadow:0 1px 4px rgba(0,0,0,.65); display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden}
-.tk-song{margin-top:7px; font-size:13px; font-weight:600; color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.65); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.tk-rail{position:absolute; right:8px; bottom:14px; z-index:3; display:flex; flex-direction:column; align-items:center; gap:15px}
-.tk-act{display:flex; flex-direction:column; align-items:center; gap:2px; color:#fff; font-size:12px; font-weight:700; padding:2px; text-shadow:0 1px 4px rgba(0,0,0,.6)}
-.tk-act svg{width:33px; height:33px; filter:drop-shadow(0 2px 5px rgba(0,0,0,.5))}
+.tk-meta{position:absolute; left:0; right:0; bottom:0; padding:30px 12px 9px; color:#fff; z-index:3; background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.62)); display:flex; flex-direction:column; gap:4px}
+.tk-author{display:flex; gap:8px; align-items:center}
+.tk-author .nm{font-weight:800; font-size:14px; color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.65)}
+.tk-author .sub{font-size:11px; color:rgba(255,255,255,.85); text-shadow:0 1px 4px rgba(0,0,0,.65)}
+.tk-caption{margin:0; font-size:13px; line-height:1.35; white-space:pre-wrap; word-wrap:break-word; text-shadow:0 1px 4px rgba(0,0,0,.65); display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; cursor:pointer}
+.tk-caption.expanded{-webkit-line-clamp:unset; overflow:visible}
+.tk-song{margin-top:1px; font-size:12px; font-weight:600; color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.65); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.tk-rail{position:absolute; right:8px; bottom:104px; z-index:3; display:flex; flex-direction:column; align-items:center; gap:10px}
+.tk-act{display:flex; flex-direction:column; align-items:center; gap:2px; color:#fff; font-size:11px; font-weight:700; padding:0; text-shadow:0 1px 4px rgba(0,0,0,.6)}
+.tk-act svg{width:20px; height:20px; padding:10px; box-sizing:content-box; background:rgba(0,0,0,.38); border-radius:50%; filter:drop-shadow(0 2px 5px rgba(0,0,0,.5))}
 .tk-act.liked{color:var(--red)}
-.tk-act .cnt{font-size:12px}
-.tk-rail .feed-sound-btn{width:44px; height:44px; border-radius:50%; background:rgba(0,0,0,.38); font-size:21px; align-items:center; justify-content:center; text-shadow:none}
+.tk-act .cnt{font-size:11px}
+.tk-rail .feed-sound-btn{width:40px; height:40px; border-radius:50%; background:rgba(0,0,0,.38); font-size:18px; align-items:center; justify-content:center; text-shadow:none; padding:0}
 
 /* ---------- videos pager ---------- */
 .pager-bar{display:flex; align-items:center; gap:10px; margin-top:12px}
