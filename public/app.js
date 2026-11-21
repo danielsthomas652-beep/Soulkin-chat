@@ -29,7 +29,18 @@ function shadeHex(hex, f) {
   return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
 }
 function fillAvatarTokens(tpl, tokens) {
-  return String(tpl || '').replace(/\{(hc|oc|od|ol|sk)\}/g, (m, k) => tokens[k] || m);
+  return String(tpl || '').replace(/\{(hc|hd|hl|oc|od|ol|sk|sd|sl)\}/g, (m, k) => tokens[k] || m);
+}
+/* One eye: white, warm iris, pupil, a catchlight dot and a lashed
+ * upper line with a tiny flick at the outer corner — the cheapest
+ * way to make the little faces feel alive. dir = -1 left, +1 right. */
+function avatarEyeSVG(cx, dir) {
+  return `<ellipse cx="${cx}" cy="40.5" rx="3.2" ry="3.7" fill="#ffffff"/>` +
+    `<circle cx="${cx}" cy="40.9" r="2" fill="#4a3226"/>` +
+    `<circle cx="${cx}" cy="41.1" r="1.05" fill="#221a16"/>` +
+    `<circle cx="${cx - 0.75}" cy="40" r="0.85" fill="#ffffff"/>` +
+    `<path d="M${cx - 3.3} 37.6 Q${cx} 35.9 ${cx + 3.3} 37.6" fill="none" stroke="#3a2a20" stroke-width="1.15" stroke-linecap="round"/>` +
+    `<path d="M${cx + dir * 3.2} 37.8 l${dir * 1.7} -1.1" fill="none" stroke="#3a2a20" stroke-width="1.05" stroke-linecap="round"/>`;
 }
 function avatarSVG(cfg, size) {
   const P = window.AvatarParts;
@@ -38,7 +49,11 @@ function avatarSVG(cfg, size) {
   const skin = P.SKIN_TONES[c.skin] || P.SKIN_TONES[P.AVATAR_DEFAULTS.skin];
   const hairCol = P.HAIR_COLORS[c.hairColor] || P.HAIR_COLORS[P.AVATAR_DEFAULTS.hairColor];
   const outfitCol = P.OUTFIT_COLORS[c.outfitColor] || P.OUTFIT_COLORS[P.AVATAR_DEFAULTS.outfitColor];
-  const tokens = { hc: hairCol, oc: outfitCol, od: shadeHex(outfitCol, 0.68), ol: shadeHex(outfitCol, 1.5), sk: skin };
+  const tokens = {
+    hc: hairCol, hd: shadeHex(hairCol, 0.6), hl: shadeHex(hairCol, 1.5),
+    oc: outfitCol, od: shadeHex(outfitCol, 0.66), ol: shadeHex(outfitCol, 1.5),
+    sk: skin, sd: shadeHex(skin, 0.76), sl: shadeHex(skin, 1.14),
+  };
   const hairArt = P.HAIR_ART[c.hair] || P.HAIR_ART[P.AVATAR_DEFAULTS.hair];
   const outfitArt = P.OUTFIT_ART[c.outfit] || P.OUTFIT_ART[P.AVATAR_DEFAULTS.outfit];
   const mouthArt = P.MOUTH_ART[c.mouth] || P.MOUTH_ART[P.AVATAR_DEFAULTS.mouth];
@@ -46,13 +61,22 @@ function avatarSVG(cfg, size) {
     P.BACKGROUNDS[c.bg] || P.BACKGROUNDS[P.AVATAR_DEFAULTS.bg],
     fillAvatarTokens(hairArt.back, tokens),
     fillAvatarTokens(outfitArt.back, tokens),
+    // neck, with the chin's soft shadow resting on it
+    `<rect x="45.5" y="50" width="9" height="17" rx="3.5" fill="${skin}"/>`,
+    `<ellipse cx="50" cy="59.3" rx="5.2" ry="2.3" fill="${tokens.sd}" opacity=".38"/>`,
     fillAvatarTokens(outfitArt.front, tokens),
-    `<rect x="44.5" y="50" width="11" height="15" rx="4" fill="${skin}"/>`,
-    `<circle cx="32.6" cy="42" r="3.6" fill="${skin}"/><circle cx="67.4" cy="42" r="3.6" fill="${skin}"/>`,
-    `<circle cx="50" cy="41" r="17.5" fill="${skin}"/>`,
+    // ears, with a small inner shadow curve
+    `<circle cx="31.7" cy="41" r="3.9" fill="${skin}"/><circle cx="68.3" cy="41" r="3.9" fill="${skin}"/>`,
+    `<path d="M33.4 39.2 a2.2 2.6 0 0 1 .4 3.4 M66.6 39.2 a2.2 2.6 0 0 0 -.4 3.4" fill="none" stroke="${tokens.sd}" stroke-width="1.1" opacity=".55" stroke-linecap="round"/>`,
+    // head: base, a soft shadow crescent down the right side, a
+    // gentle highlight upper-left, and baked-in rosy cheeks
+    `<circle cx="50" cy="40" r="18" fill="${skin}"/>`,
+    `<path d="M59.2 24.6 A18 18 0 0 1 59.2 55.4 A13.5 17 0 0 0 59.2 24.6 Z" fill="${tokens.sd}" opacity=".15"/>`,
+    `<ellipse cx="41.5" cy="30.5" rx="8.6" ry="5.4" fill="#ffffff" opacity=".10" transform="rotate(-16 41.5 30.5)"/>`,
+    `<ellipse cx="38.3" cy="48.2" rx="3.6" ry="2.1" fill="#ff7d95" opacity=".30"/><ellipse cx="61.7" cy="48.2" rx="3.6" ry="2.1" fill="#ff7d95" opacity=".30"/>`,
     fillAvatarTokens(P.FACIAL_HAIR_ART[c.facialHair], tokens),
-    '<ellipse cx="43.5" cy="41" rx="1.9" ry="2.6" fill="#2a2f38"/><ellipse cx="56.5" cy="41" rx="1.9" ry="2.6" fill="#2a2f38"/>',
-    '<path d="M50 44.5 q1.6 2.4 0 4.2" fill="none" stroke="rgba(0,0,0,.16)" stroke-width="1.4" stroke-linecap="round"/>',
+    avatarEyeSVG(43.3, -1) + avatarEyeSVG(56.7, 1),
+    '<path d="M50 43.9 q1.7 2.6 .2 4.4 q-.7 .8 -2 .7" fill="none" stroke="rgba(0,0,0,.16)" stroke-width="1.4" stroke-linecap="round"/>',
     mouthArt.brows,
     mouthArt.mouth,
     fillAvatarTokens(hairArt.front, tokens),
