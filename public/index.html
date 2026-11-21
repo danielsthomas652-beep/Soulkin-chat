@@ -60,15 +60,12 @@
           <span id="composerAvatar"></span>
           <textarea id="composerText" rows="2" placeholder="What's on your mind?"></textarea>
         </div>
-        <div id="mediaPreview" class="media-preview hidden"></div>
-        <div id="composerSong"></div>
         <div class="composer-row">
           <button class="chip-btn" id="btnPhoto" type="button">📷 Photo</button>
           <button class="chip-btn" id="btnVideoFile" type="button">🎬 Video</button>
           <button class="chip-btn" id="btnMusic" type="button">🎵 Music</button>
           <input type="file" id="filePhoto" accept="image/*" class="hidden">
           <input type="file" id="fileVideo" accept="video/mp4,video/webm,video/quicktime" class="hidden">
-          <button class="post-btn" id="btnPost" type="button">Post</button>
         </div>
       </div>
       <div class="view-title"><span class="dot"></span> Public feed — everybody's posts</div>
@@ -139,6 +136,29 @@
       <button data-nav="profile" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4.5 21c1-4 4-6 7.5-6s6.5 2 7.5 6"/></svg>Profile</button>
     </div>
   </nav>
+</div>
+
+<!-- ============ POST EDITOR ============ -->
+<div id="postEditor" class="overlay editor hidden">
+  <div class="viewer-top editor-top">
+    <button class="x" id="editorCancel" type="button" aria-label="Cancel">✕</button>
+    <b>Edit your post</b>
+    <button class="post-btn" id="editorPost" type="button">Post</button>
+  </div>
+  <div class="editor-body">
+    <div id="editorMedia" class="editor-media"></div>
+    <div class="editor-media-btns">
+      <button class="chip-btn" id="edBtnPhoto" type="button">📷 Add photo</button>
+      <button class="chip-btn" id="edBtnVideo" type="button">🎬 Add video</button>
+      <button class="chip-btn hidden" id="edBtnRemoveMedia" type="button">🗑 Remove media</button>
+    </div>
+    <textarea id="editorText" rows="3" placeholder="Say something about it…"></textarea>
+    <div id="editorSong"></div>
+    <div class="editor-media-btns">
+      <button class="chip-btn" id="edBtnMusic" type="button">🎵 Add music</button>
+    </div>
+    <p class="editor-hint">Music plays along with videos — pick a video first, then add a song. Nothing is posted until you tap Post. 🎬</p>
+  </div>
 </div>
 
 <!-- ============ FULL-SCREEN VIEWER ============ -->

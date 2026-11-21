@@ -75,7 +75,9 @@ $('#authForm').addEventListener('submit', async (e) => {
 });
 
 /* ================= nav ================= */
+let currentView = 'feed';
 function showView(name) {
+  currentView = name;
   ['feed', 'videos', 'people', 'friends', 'profile'].forEach((v) => $('#view-' + v).classList.toggle('hidden', v !== name));
   $$('.bottomnav button').forEach((b) => b.classList.toggle('on', b.dataset.nav === name));
   if (name === 'videos') { ensureVideos(); resumeCurrentSlide(); }
@@ -86,6 +88,46 @@ function showView(name) {
   window.scrollTo(0, 0);
 }
 $$('.bottomnav button').forEach((b) => b.addEventListener('click', () => showView(b.dataset.nav)));
+
+/* ================= swipe between pages =================
+ * A clear left/right swipe moves between the main tabs in bottom-nav
+ * order (Feed → Videos → People → Friends → Profile). The Videos view
+ * itself is skipped — its pager owns horizontal swiping there — and a
+ * swipe that starts in a form field, the top/bottom bars, an open
+ * overlay, or a horizontally scrolling strip never changes the page.
+ * The gesture must travel ~60px and be mostly horizontal, so ordinary
+ * vertical scrolling never triggers it. */
+const TAB_ORDER = ['feed', 'videos', 'people', 'friends', 'profile'];
+function anyOverlayOpen() {
+  return ['#viewer', '#callView', '#postEditor', '#sheet', '#callPopup', '#knowConfirm'].some((s) => !$(s).classList.contains('hidden'));
+}
+function insideHScroller(el) {
+  while (el && el !== document.body) {
+    if (el.classList && el.classList.contains('pager')) return true;
+    const cs = window.getComputedStyle(el);
+    if ((cs.overflowX === 'auto' || cs.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 4) return true;
+    el = el.parentElement;
+  }
+  return false;
+}
+let swipeStart = null;
+document.addEventListener('touchstart', (e) => {
+  swipeStart = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, target: e.target } : null;
+}, { passive: true });
+document.addEventListener('touchend', (e) => {
+  if (!swipeStart) return;
+  const start = swipeStart; swipeStart = null;
+  if (currentView === 'videos' || anyOverlayOpen()) return;
+  const t = start.target;
+  if (t && t.closest && (t.closest('input, textarea, select') || t.closest('.bottomnav') || t.closest('.topbar') || insideHScroller(t))) return;
+  const dx = e.changedTouches[0].clientX - start.x;
+  const dy = e.changedTouches[0].clientY - start.y;
+  if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
+  const i = TAB_ORDER.indexOf(currentView);
+  const next = dx < 0 ? i + 1 : i - 1;
+  if (next < 0 || next >= TAB_ORDER.length) return;
+  showView(TAB_ORDER[next]);
+}, { passive: true });
 
 function enterApp() {
   $('#authView').classList.add('hidden');
@@ -164,54 +206,100 @@ document.addEventListener('click', async (e) => {
   } catch (ex) { toast(ex.message); }
 });
 
-/* ================= composer ================= */
-let pendingFile = null; // {file, kind:'image'|'video', url}
-let composerSong = null;
-function setPendingFile(file, kind) {
-  clearPendingFile();
-  pendingFile = { file, kind, url: URL.createObjectURL(file) };
-  const pv = $('#mediaPreview');
-  pv.innerHTML = (kind === 'image' ? `<img src="${pendingFile.url}">` : `<video src="${pendingFile.url}" controls playsinline></video>`) + '<button class="rm" id="rmMedia" type="button" aria-label="Remove">✕</button>';
-  pv.classList.remove('hidden');
-  $('#rmMedia').addEventListener('click', clearPendingFile);
+/* ================= composer (entry point) + post editor =================
+ * The feed composer no longer posts directly. Tapping its text box or
+ * the Photo / Video / Music buttons opens the full-screen Post Editor,
+ * and nothing is published until Post is tapped there. The editor owns
+ * the draft: media preview, caption, and an optional song for a video. */
+let editorFile = null; // {file, kind:'image'|'video', url}
+let editorSong = null;
+let editorIsOpen = false;
+
+function openEditor(focusText) {
+  if (!editorIsOpen) {
+    // a fresh draft starts from whatever was typed in the feed composer
+    $('#editorText').value = $('#composerText').value;
+    editorIsOpen = true;
+  }
+  $('#postEditor').classList.remove('hidden');
+  renderEditor();
+  if (focusText) { const t = $('#editorText'); try { t.focus({ preventScroll: true }); } catch (e) { t.focus(); } }
 }
-function clearPendingFile() {
-  if (pendingFile) URL.revokeObjectURL(pendingFile.url);
-  pendingFile = null;
-  $('#mediaPreview').innerHTML = '';
-  $('#mediaPreview').classList.add('hidden');
+function closeEditor() {
+  $('#postEditor').classList.add('hidden');
+  editorIsOpen = false;
 }
-function renderComposerSong() {
-  $('#composerSong').innerHTML = composerSong ? `<span class="song-tag">🎵 ${esc(composerSong.title)} <button id="rmSong" type="button" aria-label="Remove song">✕</button></span>` : '';
-  const rm = $('#rmSong'); if (rm) rm.addEventListener('click', () => { composerSong = null; renderComposerSong(); });
+function discardEditor() {
+  clearEditorFile();
+  editorSong = null;
+  $('#editorText').value = '';
+  $('#composerText').value = '';
+  renderEditor();
+  closeEditor();
 }
+function setEditorFile(file, kind) {
+  clearEditorFile();
+  editorFile = { file, kind, url: URL.createObjectURL(file) };
+  if (kind !== 'video' && editorSong) editorSong = null; // songs ride on videos only
+  renderEditor();
+}
+function clearEditorFile() {
+  if (editorFile) URL.revokeObjectURL(editorFile.url);
+  editorFile = null;
+}
+function renderEditor() {
+  const box = $('#editorMedia');
+  box.innerHTML = editorFile
+    ? (editorFile.kind === 'image'
+      ? `<img src="${editorFile.url}" alt="Your photo">`
+      : `<video src="${editorFile.url}" controls playsinline></video>`)
+    : '<div class="editor-media-empty"><div class="eme-icon">🖼️</div><div>Add a photo or video below</div></div>';
+  $('#edBtnPhoto').textContent = editorFile && editorFile.kind === 'image' ? '📷 Change photo' : '📷 Add photo';
+  $('#edBtnVideo').textContent = editorFile && editorFile.kind === 'video' ? '🎬 Change video' : '🎬 Add video';
+  $('#edBtnRemoveMedia').classList.toggle('hidden', !editorFile);
+  renderEditorSong();
+}
+function renderEditorSong() {
+  $('#editorSong').innerHTML = editorSong ? `<span class="song-tag">🎵 ${esc(editorSong.title)} — ${esc(editorSong.artist)} <button id="edRmSong" type="button" aria-label="Remove song">✕</button></span>` : '';
+  const rm = $('#edRmSong'); if (rm) rm.addEventListener('click', () => { editorSong = null; renderEditorSong(); });
+}
+
+/* feed composer = entry points into the editor */
+$('#composerText').addEventListener('click', () => openEditor(true));
 $('#btnPhoto').addEventListener('click', () => $('#filePhoto').click());
 $('#btnVideoFile').addEventListener('click', () => $('#fileVideo').click());
-$('#filePhoto').addEventListener('change', (e) => { if (e.target.files[0]) setPendingFile(e.target.files[0], 'image'); e.target.value = ''; });
-$('#fileVideo').addEventListener('change', (e) => { if (e.target.files[0]) setPendingFile(e.target.files[0], 'video'); e.target.value = ''; });
-$('#btnMusic').addEventListener('click', () => {
-  if (pendingFile && pendingFile.kind !== 'video') { toast('Pick a video first, then add music 🎬'); return; }
-  openMusicPicker({ type: 'composer' });
+$('#btnMusic').addEventListener('click', () => openEditor(false));
+$('#filePhoto').addEventListener('change', (e) => { if (e.target.files[0]) { setEditorFile(e.target.files[0], 'image'); openEditor(false); } e.target.value = ''; });
+$('#fileVideo').addEventListener('change', (e) => { if (e.target.files[0]) { setEditorFile(e.target.files[0], 'video'); openEditor(false); } e.target.value = ''; });
+
+/* editor buttons */
+$('#edBtnPhoto').addEventListener('click', () => $('#filePhoto').click());
+$('#edBtnVideo').addEventListener('click', () => $('#fileVideo').click());
+$('#edBtnRemoveMedia').addEventListener('click', () => { clearEditorFile(); editorSong = null; renderEditor(); });
+$('#edBtnMusic').addEventListener('click', () => {
+  if (!editorFile || editorFile.kind !== 'video') { toast('Pick a video first, then add music 🎬'); return; }
+  openMusicPicker({ type: 'editor' });
 });
-$('#btnPost').addEventListener('click', async () => {
-  const text = $('#composerText').value.trim();
-  if (!text && !pendingFile) { toast("Write something or add a picture first 🙂"); return; }
-  const btn = $('#btnPost'); btn.disabled = true; btn.textContent = 'Posting…';
+$('#editorCancel').addEventListener('click', discardEditor);
+$('#editorPost').addEventListener('click', async () => {
+  const text = $('#editorText').value.trim();
+  if (!text && !editorFile) { toast("Write something or add a picture first 🙂"); return; }
+  const btn = $('#editorPost'); btn.disabled = true; btn.textContent = 'Posting…';
   try {
     let data;
-    if (pendingFile) {
+    if (editorFile) {
       const fd = new FormData();
       fd.append('text', text);
-      fd.append('media', pendingFile.file);
-      if (composerSong && pendingFile.kind === 'video') fd.append('songId', composerSong.id);
+      fd.append('media', editorFile.file);
+      if (editorSong && editorFile.kind === 'video') fd.append('songId', editorSong.id);
       const res = await fetch('/api/posts', { method: 'POST', body: fd });
       data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Post failed.');
     } else {
       data = await api('/api/posts', { method: 'POST', body: JSON.stringify({ text, songId: null }) });
     }
-    $('#composerText').value = '';
-    clearPendingFile(); composerSong = null; renderComposerSong();
+    discardEditor();
+    showView('feed');
     const list = $('#feedList');
     const empty = list.querySelector('.empty'); if (empty) empty.remove();
     list.insertAdjacentHTML('afterbegin', postCardHTML(data.post));
@@ -495,12 +583,12 @@ const previewAudio = new Audio();
 let previewingId = null;
 function stopPreview() { previewAudio.pause(); previewingId = null; $$('.song-row .prev').forEach((b) => (b.textContent = '▶ Hear')); }
 const CAT_COLORS = { 'Pop': '#ef476f', 'Hip-Hop': '#7b61c9', 'Chill': '#118ab2', 'Party': '#e23b4e', 'Country': '#e9a13b', 'Rock': '#3a4a6b', 'Feel-good': '#06d6a0' };
-let musicTarget = null; // {type:'composer'} | {type:'video', id}
+let musicTarget = null; // {type:'editor'} | {type:'video', id}
 let musicCat = 'All', musicQuery = '';
 async function openMusicPicker(target) {
   musicTarget = target;
   if (!songsCache) { const s = await api('/api/songs'); songsCache = s.songs; }
-  openSheet(target.type === 'composer' ? 'Add music to your video 🎵' : 'Pick a song for this video 🎵');
+  openSheet(target.type === 'video' ? 'Pick a song for this video 🎵' : 'Add music to your video 🎵');
   renderMusicPicker();
 }
 function renderMusicPicker() {
@@ -528,7 +616,7 @@ function renderMusicPicker() {
     const s = songsCache.find((x) => x.id === b.dataset.use);
     stopPreview(); closeSheet();
     if (!musicTarget) return;
-    if (musicTarget.type === 'composer') { composerSong = s; renderComposerSong(); toast('Music added 🎵'); }
+    if (musicTarget.type === 'editor') { editorSong = s; renderEditorSong(); toast('Music added 🎵'); }
     else if (musicTarget.type === 'video') {
       clipSongOverrides[musicTarget.id] = s.id;
       localStorage.setItem('solkin_clip_songs', JSON.stringify(clipSongOverrides));
