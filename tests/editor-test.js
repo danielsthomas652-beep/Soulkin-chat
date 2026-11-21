@@ -132,7 +132,7 @@ async function main() {
     check('editor Post publishes through the existing /api/posts flow', js.includes("$('#editorPost').addEventListener('click'") && js.includes("fetch('/api/posts'") && js.includes("fd.append('songId'"));
     check('editor Cancel is wired to discard the draft', js.includes("$('#editorCancel').addEventListener('click', discardEditor)"));
     check('no direct-post handler remains in JS', !js.includes("$('#btnPost')") && !js.includes("type: 'composer'") && !js.includes('pendingFile'));
-    check('swipe nav: tab order follows the bottom nav', js.includes("const TAB_ORDER = ['feed', 'videos', 'people', 'friends', 'chat', 'map', 'profile']"));
+    check('swipe nav: tab order follows the side rail', js.includes("const TAB_ORDER = ['feed', 'videos', 'people', 'friends', 'chat', 'map', 'profile']"));
     check('swipe nav: touch handler with a ~60px mostly-horizontal threshold', js.includes("addEventListener('touchend'") && js.includes('Math.abs(dx) < 60'));
     check('swipe nav: Videos view is left to its pager', js.includes("currentView === 'videos'"));
     check('swipe nav: overlays and form fields are not hijacked', js.includes('anyOverlayOpen') && js.includes('insideHScroller'));

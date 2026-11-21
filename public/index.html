@@ -7,14 +7,14 @@
 <meta name="description" content="mLT. chat — your people, your moments. Post, watch, and hang out.">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='46' fill='%2316305e'/><text x='50' y='66' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>S</text></svg>">
+<link rel="icon" href="/logo.webp" type="image/webp">
 </head>
 <body>
 
 <!-- ============ AUTH ============ -->
 <div id="authView" class="auth-wrap hidden">
   <div class="auth-card">
-    <div class="auth-logo">mLT.<span> chat</span></div>
+    <div class="auth-logo"><img src="/logo.webp" alt="mLT. chat"></div>
     <p class="auth-tag">Your people. Your moments. 🎈</p>
     <div id="authErr" class="err hidden"></div>
     <div class="auth-tabs">
@@ -47,7 +47,7 @@
 <div id="appView" class="hidden">
   <header class="topbar">
     <div class="topbar-in">
-      <div class="logo">mLT.<span> chat</span></div>
+      <div class="logo-chip"><img src="/logo.webp" alt="mLT. chat"></div>
       <div class="spacer"></div>
       <div class="me-chip"><span id="meAvatar"></span><span id="meName"></span></div>
     </div>
@@ -83,7 +83,6 @@
         <button class="sound-pill" id="soundPill" type="button">🔇 Sound OFF</button>
       </div>
       <div class="pager" id="pager"></div>
-      <p style="color:var(--muted); font-size:13px; text-align:center; margin-top:10px">Swipe sideways through the videos 👉</p>
     </section>
 
     <!-- PEOPLE -->
@@ -157,8 +156,7 @@
     </section>
   </main>
 
-  <nav class="bottomnav">
-    <div class="bottomnav-in">
+  <nav class="sidenav">
       <button data-nav="feed" class="on" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>Feed</button>
       <button data-nav="videos" type="button"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>Videos</button>
       <button data-nav="people" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/><circle cx="17.5" cy="9" r="2.6"/><path d="M16 15.2c2.3.3 4.3 1.8 5 4.3"/></svg>People</button>
@@ -166,7 +164,6 @@
       <button data-nav="chat" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z"/></svg>Chat<span class="nav-badge hidden" id="chatBadge">0</span></button>
       <button data-nav="map" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21.5s-7.2-5.9-7.2-11.3a7.2 7.2 0 0 1 14.4 0C19.2 15.6 12 21.5 12 21.5z"/><circle cx="12" cy="10.2" r="2.7"/></svg>Map</button>
       <button data-nav="profile" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4.5 21c1-4 4-6 7.5-6s6.5 2 7.5 6"/></svg>Profile</button>
-    </div>
   </nav>
 </div>
 
@@ -208,6 +205,11 @@
   <div class="camera-mode-row" id="camModeRow">
     <button class="cam-mode-btn on" id="camModePhoto" type="button">📸 Photo</button>
     <button class="cam-mode-btn" id="camModeVideo" type="button">🎬 Video</button>
+  </div>
+  <div class="camera-length-row hidden" id="camLengthRow">
+    <button class="cam-len-btn on" type="button" data-len="60">60 sec</button>
+    <button class="cam-len-btn" type="button" data-len="120">2 min</button>
+    <button class="cam-len-btn" type="button" data-len="180">3 min</button>
   </div>
   <div class="camera-controls">
     <button class="call-ctl" id="camFlip" type="button">🔄<span>Flip</span></button>

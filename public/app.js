@@ -79,7 +79,7 @@ let currentView = 'feed';
 function showView(name) {
   currentView = name;
   ['feed', 'videos', 'people', 'friends', 'chat', 'map', 'profile'].forEach((v) => $('#view-' + v).classList.toggle('hidden', v !== name));
-  $$('.bottomnav button').forEach((b) => b.classList.toggle('on', b.dataset.nav === name));
+  $$('.sidenav button').forEach((b) => b.classList.toggle('on', b.dataset.nav === name));
   if (name === 'videos') { ensureVideos(); resumeCurrentSlide(); }
   else pauseAllSlides();
   if (name === 'people') loadPeople();
@@ -89,13 +89,13 @@ function showView(name) {
   if (name === 'profile') loadProfile();
   window.scrollTo(0, 0);
 }
-$$('.bottomnav button').forEach((b) => b.addEventListener('click', () => showView(b.dataset.nav)));
+$$('.sidenav button').forEach((b) => b.addEventListener('click', () => showView(b.dataset.nav)));
 
 /* ================= swipe between pages =================
- * A clear left/right swipe moves between the main tabs in bottom-nav
+ * A clear left/right swipe moves between the main tabs in side-rail
  * order (Feed → Videos → People → Friends → Chat → Map → Profile). The Videos view
  * itself is skipped — its pager owns horizontal swiping there — and a
- * swipe that starts in a form field, the top/bottom bars, an open
+ * swipe that starts in a form field, the top bar or the side rail, an open
  * overlay, a horizontally scrolling strip, or the friend map (Leaflet
  * owns panning there) never changes the page.
  * The gesture must travel ~60px and be mostly horizontal, so ordinary
@@ -122,7 +122,7 @@ document.addEventListener('touchend', (e) => {
   const start = swipeStart; swipeStart = null;
   if (currentView === 'videos' || anyOverlayOpen()) return;
   const t = start.target;
-  if (t && t.closest && (t.closest('input, textarea, select') || t.closest('.bottomnav') || t.closest('.topbar') || t.closest('#mapEl') || insideHScroller(t))) return;
+  if (t && t.closest && (t.closest('input, textarea, select') || t.closest('.sidenav') || t.closest('.topbar') || t.closest('#mapEl') || insideHScroller(t))) return;
   const dx = e.changedTouches[0].clientX - start.x;
   const dy = e.changedTouches[0].clientY - start.y;
   if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
@@ -436,7 +436,8 @@ $('#editorPost').addEventListener('click', async () => {
  * photo-only and never even show the toggle). Video mode restarts the
  * stream WITH the microphone and records with MediaRecorder at a low
  * bitrate (about 1.2 Mbps video + 64 kbps audio, so a take stays
- * small), capped at CAM_MAX_SECONDS with an on-screen timer and an
+ * small), capped at the picked length (60 sec / 2 min / 3 min,
+ * default 60) with an on-screen timer and an
  * auto-stop. Stopping shows a preview of the take: Retake throws it
  * away, Use video hands it to the Post Editor through the SAME
  * setEditorFile(file, 'video') path gallery video picks use — from
@@ -451,9 +452,9 @@ let camChunks = []; // recorded pieces of the current take
 let camRecordedBlob = null; // the finished take, waiting on the preview screen
 let camRecordedType = ''; // its real mime type ('video/mp4' | 'video/webm')
 let camPreviewUrl = null; // object URL feeding the preview player
-let camRecTimer = null; // interval driving the timer + the 60s auto-stop
+let camRecTimer = null; // interval driving the timer + the auto-stop
 let camRecStartedAt = 0;
-const CAM_MAX_SECONDS = 60; // TikTok-style short clips; also keeps files small
+let camMaxSeconds = 60; // picked recording length: 60 / 120 / 180 sec (default 60)
 
 function cameraErrorMessage(e) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || (e && e.name === 'UnsupportedError')) {
@@ -493,6 +494,8 @@ async function startCameraStream() {
 async function openCamera(target) {
   camTarget = (target === 'thread' || target === 'snap') ? target : 'editor';
   camMode = 'photo'; // every visit starts in photo mode, like before
+  camMaxSeconds = 60; // …and with the shortest length picked
+  renderCamLength();
   hideCamPreview();
   // The Photo / Video toggle only exists for making posts; the thread
   // and snap cameras stay photo-only, so their toggle is hidden.
@@ -522,7 +525,18 @@ function renderCamMode() {
   $('#camModeVideo').classList.toggle('on', video);
   $('#camPhotoControls').classList.toggle('hidden', video);
   $('#camVideoControls').classList.toggle('hidden', !video);
+  $('#camLengthRow').classList.toggle('hidden', !video);
   if (!video) $('#camTimer').classList.add('hidden');
+}
+/* ---------- camera: recording length (60 sec / 2 min / 3 min) ---------- */
+function renderCamLength() {
+  $$('.cam-len-btn').forEach((b) => b.classList.toggle('on', Number(b.dataset.len) === camMaxSeconds));
+}
+function setCamLength(sec) {
+  if (camRecorder) return; // never mid-recording
+  if (![60, 120, 180].includes(sec)) return;
+  camMaxSeconds = sec;
+  renderCamLength();
 }
 async function setCamMode(mode) {
   if (camRecorder) return; // never mid-recording
@@ -568,7 +582,7 @@ function startRecording() {
   updateCamTimer();
   camRecTimer = setInterval(() => {
     updateCamTimer();
-    if ((Date.now() - camRecStartedAt) / 1000 >= CAM_MAX_SECONDS) stopRecording();
+    if ((Date.now() - camRecStartedAt) / 1000 >= camMaxSeconds) stopRecording();
   }, 250);
 }
 function stopRecording() {
@@ -605,10 +619,14 @@ function renderRecordingUI(recording) {
   $('#camFlip').disabled = recording;
   $('#camModePhoto').disabled = recording;
   $('#camModeVideo').disabled = recording;
+  $$('.cam-len-btn').forEach((b) => { b.disabled = recording; });
+}
+function fmtCamClock(totalSeconds) {
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
 }
 function updateCamTimer() {
-  const s = Math.min(CAM_MAX_SECONDS, Math.floor((Date.now() - camRecStartedAt) / 1000));
-  $('#camTimer').textContent = `● ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} / 1:00`;
+  const s = Math.min(camMaxSeconds, Math.floor((Date.now() - camRecStartedAt) / 1000));
+  $('#camTimer').textContent = `● ${fmtCamClock(s)} / ${fmtCamClock(camMaxSeconds)}`;
 }
 /* ---------- camera: recording preview (Retake / Use video) ---------- */
 function showCamPreview() {
@@ -662,6 +680,7 @@ $('#camFlip').addEventListener('click', flipCamera);
 $('#camCapture').addEventListener('click', capturePhoto);
 $('#camModePhoto').addEventListener('click', () => setCamMode('photo'));
 $('#camModeVideo').addEventListener('click', () => setCamMode('video'));
+$$('.cam-len-btn').forEach((b) => b.addEventListener('click', () => setCamLength(Number(b.dataset.len))));
 $('#camRecord').addEventListener('click', startRecording);
 $('#camStop').addEventListener('click', stopRecording);
 $('#camRetake').addEventListener('click', hideCamPreview);

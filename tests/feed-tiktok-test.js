@@ -150,8 +150,8 @@ async function main() {
     check('CSS sizes the TikTok stage tall (~84vh)', css.includes('.tk-stage') && css.includes('84vh'));
     check('CSS letterboxes the clip (contain) over a blurred backdrop', css.includes('.tk-video') && css.includes('object-fit:contain') && css.includes('.tk-bg') && css.includes('blur(28px)'));
     check('CSS styles the overlay + right-edge rail', css.includes('.tk-meta') && css.includes('.tk-rail') && css.includes('.tk-act'));
-    check('Videos pager CSS unchanged (mandatory sideways snap, 43vh slides)',
-      css.includes('scroll-snap-type:x mandatory') && css.includes('.slide video') && css.includes('height:43vh'));
+    check('Videos pager CSS keeps the sideways snap; slide stage raised big (70vh, no more 43vh shrink)',
+      css.includes('scroll-snap-type:x mandatory') && css.includes('.slide video') && css.includes('height:min(70vh,680px)') && !css.includes('height:43vh'));
 
     // --- the unchanged feed API contract, exercised end to end ---
     const songs = await (await fetch(BASE + '/api/songs')).json();

@@ -166,12 +166,13 @@ async function postRow(p, meId) {
 // Cloud mode (Render's disk is ephemeral, files would vanish): multer keeps
 // the upload in memory instead; the POST /api/posts handler then stores
 // the file as a blob in the database (media_blobs, served via /media/:id).
-// Cloud blob caps: photos 5 MB, videos 20 MB (see the posts handler) —
+// Cloud blob caps: photos 5 MB, videos 40 MB (see the posts handler) —
 // the video cap is what makes in-app TikTok-style recordings (kept small
-// by the recorder's bitrate + 60-second limit) persist on the live app.
+// by the recorder's bitrate; even a full 3-minute take is ~28 MB)
+// persist on the live app.
 const EXT_BY_MIME = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp', 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov' };
 const PHOTO_BLOB_MAX = 5 * 1024 * 1024; // cloud-mode photo cap: 5 MB
-const VIDEO_BLOB_MAX = 20 * 1024 * 1024; // cloud-mode video cap: 20 MB
+const VIDEO_BLOB_MAX = 40 * 1024 * 1024; // cloud-mode video cap: 40 MB
 const fileFilter = (req, file, cb) => {
   if (file.mimetype.startsWith('image/') || ['video/mp4', 'video/webm', 'video/quicktime'].includes(file.mimetype)) cb(null, true);
   else cb(new Error('That file type is not allowed — pictures and short videos only.'));
@@ -298,12 +299,12 @@ app.post('/api/posts', requireAuth, upload.single('media'), async (req, res) => 
     if (cloudMode) {
       // Cloud mode: no durable disk, so post media is stored as DB blobs
       // and served from /media/:id — photos AND videos alike. Caps:
-      // photos 5 MB, videos 20 MB (in-app recordings are compressed to
+      // photos 5 MB, videos 40 MB (in-app recordings are compressed to
       // stay well under the video cap; see the recorder in app.js).
       const isImage = req.file.mimetype.startsWith('image/');
       const cap = isImage ? PHOTO_BLOB_MAX : VIDEO_BLOB_MAX;
       if (req.file.size > cap) {
-        return res.status(413).json({ error: isImage ? 'That photo is too big (5 MB max).' : 'That video is too big (20 MB max) — try a shorter one.' });
+        return res.status(413).json({ error: isImage ? 'That photo is too big (5 MB max).' : 'That video is too big (40 MB max) — try a shorter one.' });
       }
       const blobId = crypto.randomBytes(12).toString('hex');
       await db.prepare('INSERT INTO media_blobs (id, user_id, mime, data) VALUES (?, ?, ?, ?)')

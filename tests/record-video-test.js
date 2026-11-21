@@ -11,7 +11,8 @@
  *     screen (Retake / Use video). The JS wires MediaRecorder with the
  *     mp4 -> webm isTypeSupported preference, the small-file bitrates
  *     (videoBitsPerSecond 1200000, audioBitsPerSecond 64000), the
- *     60-second cap (CAM_MAX_SECONDS) with auto-stop, audio requested
+ *     picked-length cap (60 sec / 2 min / 3 min chips, camMaxSeconds,
+ *     default 60) with auto-stop, audio requested
  *     only in video mode, and Use video handing a recorded-video.mp4 /
  *     .webm File to the SAME setEditorFile(file, 'video') path gallery
  *     picks use. The photo path (capturePhoto, camera-photo.jpg) is
@@ -23,7 +24,8 @@
  *     mp4 come back byte-identical with the right mime; HTTP Range
  *     requests return 206 with the exact byte slice (start-end,
  *     open-ended, and suffix forms) while a plain GET stays a full
- *     200; a video over the 20 MB cloud cap is refused 413 and the
+ *     200; a video over the 40 MB cloud cap is refused 413, a ~25 MB
+ *     video (yesterday's refusal) is now accepted and stored, and the
  *     photo cap is unchanged (over 5 MB -> 413, small photo fine).
  *     On the local engine a video post still stores under /uploads/
  *     and serves back byte-identical, exactly as before.
@@ -170,6 +172,9 @@ async function main() {
     check('camera has a Photo / Video mode toggle', html.includes('id="camModeRow"') && html.includes('id="camModePhoto"') && html.includes('id="camModeVideo"'));
     check('camera has Record and Stop buttons for video mode', html.includes('id="camRecord"') && html.includes('id="camStop"') && html.includes('id="camVideoControls"'));
     check('camera has an on-screen recording timer', html.includes('id="camTimer"'));
+    check('camera has the three length choices (60 sec / 2 min / 3 min chips)',
+      html.includes('id="camLengthRow"') && html.includes('data-len="60"') && html.includes('data-len="120"') && html.includes('data-len="180"')
+      && html.includes('>60 sec<') && html.includes('>2 min<') && html.includes('>3 min<'));
     check('camera has a preview screen with Retake and Use video', html.includes('id="camPreview"') && html.includes('id="camPreviewVideo"') && html.includes('id="camRetake"') && html.includes('id="camUseVideo"'));
     check('photo controls are still there (Take picture)', html.includes('id="camPhotoControls"') && html.includes('id="camCapture"') && html.includes('Take picture'));
 
@@ -182,7 +187,12 @@ async function main() {
     check('recording uses MediaRecorder on the camera stream', js.includes('new MediaRecorder(camStream, opts)') && js.includes('function startRecording'));
     check('recorder mime preference is mp4 first, webm fallback (isTypeSupported)', js.includes("['video/mp4', 'video/webm']") && js.includes('MediaRecorder.isTypeSupported') && js.includes('function pickRecorderMime'));
     check('recorder bitrates keep files small (1.2 Mbps video, 64 kbps audio)', js.includes('videoBitsPerSecond: 1200000') && js.includes('audioBitsPerSecond: 64000'));
-    check('60-second cap with timer + auto-stop', js.includes('const CAM_MAX_SECONDS = 60') && js.includes('camRecTimer = setInterval') && js.includes('>= CAM_MAX_SECONDS') && js.includes('function updateCamTimer'));
+    check('picked length drives the cap: camMaxSeconds defaults to 60, auto-stop compares against it',
+      js.includes('let camMaxSeconds = 60') && js.includes('camRecTimer = setInterval') && js.includes('>= camMaxSeconds') && js.includes('function updateCamTimer'));
+    check('length chips are wired to setCamLength and the timer shows the chosen cap',
+      js.includes('function setCamLength') && js.includes('setCamLength(Number(b.dataset.len))') && js.includes('function renderCamLength') && js.includes('fmtCamClock(camMaxSeconds)'));
+    check('length row shows only in video mode and locks while recording',
+      js.includes("$('#camLengthRow').classList.toggle('hidden', !video)") && js.includes("$$('.cam-len-btn').forEach((b) => { b.disabled = recording; })"));
     check('Record / Stop buttons are wired', js.includes("$('#camRecord').addEventListener('click', startRecording)") && js.includes("$('#camStop').addEventListener('click', stopRecording)"));
     check('preview Retake discards, Use video keeps', js.includes("$('#camRetake').addEventListener('click', hideCamPreview)") && js.includes("$('#camUseVideo').addEventListener('click', useRecordedVideo)"));
     check('Use video builds recorded-video.mp4 / .webm and feeds the editor video path',
@@ -193,7 +203,7 @@ async function main() {
 
     // --- served CSS ---
     const css = await (await fetch(BASE + '/style.css')).text();
-    check('CSS styles the toggle, record/stop buttons, timer and preview', css.includes('.cam-mode-btn') && css.includes('.record-btn') && css.includes('.stop-btn') && css.includes('.camera-timer') && css.includes('.camera-preview'));
+    check('CSS styles the toggle, length chips, record/stop buttons, timer and preview', css.includes('.cam-mode-btn') && css.includes('.cam-len-btn') && css.includes('.record-btn') && css.includes('.stop-btn') && css.includes('.camera-timer') && css.includes('.camera-preview'));
 
     // --- API: posting videos, the way the recorder + editor do it ---
     const A = new Client();
@@ -250,9 +260,17 @@ async function main() {
       res = await fetch(BASE + webmUrl);
       check('plain GET of a video blob advertises Accept-Ranges: bytes', (res.headers.get('accept-ranges') || '') === 'bytes', String(res.headers.get('accept-ranges')));
 
-      // --- cloud caps: video 20 MB, photo still 5 MB ---
-      r = await A.postForm('/api/posts', mediaForm(Buffer.alloc(20 * 1024 * 1024 + 1, 5), 'video/webm', 'recorded-video.webm', 'way too long'));
-      check('video over the 20 MB cloud cap refused (413)', r.status === 413, `got ${r.status} ${JSON.stringify(r.data).slice(0, 120)}`);
+      // --- cloud caps: video 40 MB, photo still 5 MB ---
+      r = await A.postForm('/api/posts', mediaForm(Buffer.alloc(40 * 1024 * 1024 + 1, 5), 'video/webm', 'recorded-video.webm', 'way too long'));
+      check('video over the 40 MB cloud cap refused (413)', r.status === 413, `got ${r.status} ${JSON.stringify(r.data).slice(0, 120)}`);
+      const MID = Buffer.alloc(25 * 1024 * 1024, 7);
+      r = await A.postForm('/api/posts', mediaForm(MID, 'video/webm', 'recorded-video.webm', 'a full 3-minute take'));
+      check('~25 MB video (over the OLD 20 MB cap) is now accepted and stored as a blob',
+        r.status === 200 && r.data.post && r.data.post.mediaType === 'video' && r.data.post.mediaUrl.startsWith('/media/'),
+        `got ${r.status} ${JSON.stringify(r.data).slice(0, 120)}`);
+      res = await fetch(BASE + r.data.post.mediaUrl);
+      served = Buffer.from(await res.arrayBuffer());
+      check('the ~25 MB video serves back byte-identical', res.status === 200 && served.equals(MID), `status ${res.status}, ${served.length} vs ${MID.length} bytes`);
       r = await A.postForm('/api/posts', mediaForm(Buffer.alloc(5 * 1024 * 1024 + 1, 6), 'image/png', 'big.png', 'way too big'));
       check('photo over the 5 MB cloud cap still refused (413)', r.status === 413, `got ${r.status}`);
       r = await A.postForm('/api/posts', mediaForm(PNG, 'image/png', 'small.png', 'small photo still fine'));
