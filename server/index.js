@@ -186,6 +186,7 @@ async function postRow(p, meId) {
 const EXT_BY_MIME = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp', 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov' };
 const PHOTO_BLOB_MAX = 5 * 1024 * 1024; // cloud-mode photo cap: 5 MB
 const VIDEO_BLOB_MAX = 40 * 1024 * 1024; // cloud-mode video cap: 40 MB
+const FLASH_VIDEO_MAX = 20 * 1024 * 1024; // disappearing Flash video cap: 20 MB
 const fileFilter = (req, file, cb) => {
   if (file.mimetype.startsWith('image/') || ['video/mp4', 'video/webm', 'video/quicktime'].includes(file.mimetype)) cb(null, true);
   else cb(new Error('That file type is not allowed — pictures and short videos only.'));
@@ -646,14 +647,33 @@ app.get('/api/map', requireAuth, async (req, res) => {
 // also pushed live over the same WebSocket as call signaling (wsSend is
 // defined in the signaling section below — handlers only run after the
 // whole module has loaded, so the reference is safe).
-// SNAPS: a message with is_snap = 1 is a disappearing snap. Its photo
-// is stored like any photo DM, but its media_url is server-only —
-// messageRow never exposes it — and the recipient's one open (the
-// /open endpoint below) deletes the stored picture for good.
+// SNAPS (Flashes): a message with is_snap = 1 is a disappearing Flash.
+// It comes in three kinds: a PHOTO (the original — stored like any
+// photo DM), a VIDEO (stored like post media), and a TEXT (no media
+// at all — the words themselves are the secret). A media Flash's
+// media_url is server-only — messageRow never exposes it — and the
+// recipient's one open (the /open endpoint below) deletes the stored
+// content for good.
 function messageRow(m, meId) {
   const isSnap = !!m.is_snap;
+  // A snap's KIND, derived from what the server stored (never from
+  // anything a client claims at read time): a stored video is a Flash
+  // video, a stored picture is a Flash photo, and a snap with no media
+  // is a Flash text message. media_type survives the open (only
+  // media_url is destroyed), so tombstones keep their kind too.
+  const snapKind = !isSnap ? null
+    : m.media_type === 'video' ? 'video'
+    : m.media_type === 'image' ? 'photo'
+    : 'text';
+  // FLASH TEXT SECRECY: for a photo/video Flash the caption is just a
+  // caption and rides along as before — but a Flash text message's
+  // body IS the secret, so until the one open spends it, NO payload
+  // carries it: not threads, not conversation previews, not the live
+  // dm push, not even the sender's own send response. (The open wipes
+  // the stored body, so afterwards there is nothing left to leak.)
+  const hideBody = isSnap && snapKind === 'text' && !m.opened_at;
   return {
-    id: m.id, senderId: m.sender_id, recipientId: m.recipient_id, text: m.text,
+    id: m.id, senderId: m.sender_id, recipientId: m.recipient_id, text: hideBody ? '' : m.text,
     // SNAP SECRECY: a snap's stored media_url is server-only. It is
     // NEVER handed to any client — not in threads, not in conversation
     // lists, not in the live dm push, not even to the sender. The one
@@ -662,6 +682,7 @@ function messageRow(m, meId) {
     mediaUrl: isSnap ? null : (m.media_url || null),
     mediaType: isSnap ? null : (m.media_type || null),
     isSnap,
+    snapKind,
     snapOpened: isSnap ? !!m.opened_at : false,
     openedAt: isSnap ? (m.opened_at || null) : null,
     createdAt: m.created_at, readAt: m.read_at, mine: m.sender_id === meId,
@@ -688,37 +709,54 @@ async function messagingGate(me, otherId) {
   }
   return { other, friendship: f };
 }
-// A message can carry one PHOTO (no video DMs), with or without a text
-// caption. Photo messages arrive as multipart/form-data (field name
-// 'media', same as posts) and the image is stored exactly like post
-// media: a media_blobs row served at /media/:id in cloud mode, an
-// /uploads/ file in local mode, capped at the posts photo cap (5 MB).
-// Text-only messages keep arriving as JSON. The gate runs first and is
-// unchanged — photos get no shortcut around the friend rules.
+// A message can carry one PHOTO, with or without a text caption.
+// (Videos are not regular DMs — they only ride as disappearing Flash
+// videos; see the snap paragraph below.) Photo messages arrive as
+// multipart/form-data (field name 'media', same as posts) and the
+// image is stored exactly like post media: a media_blobs row served
+// at /media/:id in cloud mode, an /uploads/ file in local mode, capped
+// at the posts photo cap (5 MB). Text-only messages keep arriving as
+// JSON. The gate runs first and is unchanged — photos get no shortcut
+// around the friend rules.
 //
-// A SNAP is a photo message sent with snap=1 (multipart field): same
-// gate, same storage, same cap — but flagged is_snap. From that moment
-// the stored media_url is server-only (messageRow never exposes it);
-// the recipient reveals the picture exactly once via the snap-open
-// endpoint below, which deletes the stored image in the same request.
+// A SNAP (Flash) is flagged with snap — the multipart field snap=1
+// for media Flashes, or JSON { snap: true } for a Flash TEXT message
+// (words only, no file). Same gate for all three kinds. A media Flash
+// is stored exactly like regular message media — but flagged is_snap,
+// and from that moment the stored media_url is server-only
+// (messageRow never exposes it); the recipient reveals the content
+// exactly once via the snap-open endpoint below, which destroys the
+// stored copy in the same request. A Flash text message stores its
+// words in the row like any text — messageRow withholds them from
+// every payload until the open, which wipes them. A video may ONLY
+// ride as a Flash video (20 MB cap): a regular video DM is still
+// refused, exactly as before.
 app.post('/api/messages/:userId', requireAuth, upload.single('media'), async (req, res) => {
   const gate = await messagingGate(req.user, +req.params.userId);
   if (!gate.other) {
     if (req.file && req.file.path) { try { fs.unlinkSync(req.file.path); } catch (e) { /* already gone */ } }
     return res.status(gate.status).json({ error: gate.error });
   }
-  const isSnap = String((req.body || {}).snap || '') === '1';
+  const snapFlag = (req.body || {}).snap;
+  const isSnap = snapFlag === true || String(snapFlag || '') === '1' || String(snapFlag || '') === 'true';
   const raw = String((req.body || {}).text || '').trim();
   const text = cleanText(raw.slice(0, 1000));
   let mediaUrl = null, mediaType = null;
   if (req.file) {
-    if (!req.file.mimetype.startsWith('image/')) {
-      if (req.file.path) { try { fs.unlinkSync(req.file.path); } catch (e) { /* already gone */ } }
+    const mime = req.file.mimetype;
+    const dropFile = () => { if (req.file.path) { try { fs.unlinkSync(req.file.path); } catch (e) { /* already gone */ } } };
+    if (mime.startsWith('video/')) {
+      // Videos ride ONLY as a disappearing Flash video, capped at
+      // 20 MB; a plain video DM keeps the long-standing refusal.
+      if (!isSnap) { dropFile(); return res.status(400).json({ error: 'Messages can only carry pictures — videos are for posts. To send a video here, send it as a ⚡ Flash video instead.' }); }
+      if (req.file.size > FLASH_VIDEO_MAX) { dropFile(); return res.status(413).json({ error: 'That video is too big for a Flash (20 MB max) — try a shorter one.' }); }
+      mediaType = 'video';
+    } else if (mime.startsWith('image/')) {
+      if (req.file.size > PHOTO_BLOB_MAX) { dropFile(); return res.status(413).json({ error: 'That photo is too big (5 MB max).' }); }
+      mediaType = 'image';
+    } else {
+      dropFile();
       return res.status(400).json({ error: 'Messages can only carry pictures — videos are for posts.' });
-    }
-    if (req.file.size > PHOTO_BLOB_MAX) {
-      if (req.file.path) { try { fs.unlinkSync(req.file.path); } catch (e) { /* already gone */ } }
-      return res.status(413).json({ error: 'That photo is too big (5 MB max).' });
     }
     if (cloudMode) {
       const blobId = crypto.randomBytes(12).toString('hex');
@@ -728,9 +766,8 @@ app.post('/api/messages/:userId', requireAuth, upload.single('media'), async (re
     } else {
       mediaUrl = '/uploads/' + req.file.filename;
     }
-    mediaType = 'image';
   }
-  if (isSnap && !mediaUrl) return res.status(400).json({ error: 'A Flash needs a picture — take one with the camera first.' });
+  if (isSnap && !mediaUrl && !text) return res.status(400).json({ error: 'A Flash needs a picture, a video, or some words first.' });
   if (!text && !mediaUrl) return res.status(400).json({ error: 'Write a message or add a picture first.' });
   const info = await db.prepare('INSERT INTO messages (sender_id, recipient_id, text, media_url, media_type, is_snap) VALUES (?, ?, ?, ?, ?, ?)')
     .run(req.user.id, gate.other.id, text, mediaUrl, mediaType, isSnap ? 1 : 0);
@@ -743,15 +780,19 @@ app.post('/api/messages/:userId', requireAuth, upload.single('media'), async (re
 });
 // ----- disappearing snaps: the one-time reveal -----
 // POST /api/messages/:messageId/open — recipient only, unopened snaps
-// only. Streams the picture bytes in THIS response (a snap's mediaUrl
-// is never given out — see messageRow), and deletes the stored picture
-// in the same request: the media_blobs row goes (cloud mode) or the
-// uploads file is unlinked (local mode), media_url is nulled and
-// opened_at is set. After that the old /media/:id URL 404s and a
-// second open is a 410 — the picture is gone; only the tombstone row
-// ("Snap opened") stays. The sender can never open their own snap,
+// only. For a media Flash (photo or video) it streams the bytes in
+// THIS response (a snap's mediaUrl is never given out — see
+// messageRow), and deletes the stored copy in the same request: the
+// media_blobs row goes (cloud mode) or the uploads file is unlinked
+// (local mode), media_url is nulled and opened_at is set. The stream
+// is a single full-content 200 — no Range — so one open is one view.
+// For a Flash TEXT message it answers JSON { kind: 'text', text }
+// exactly once and wipes the stored body (text = '') in the same
+// request. After any open, a second open is a 410 and the old
+// /media/:id URL 404s — the content is gone; only the tombstone row
+// ("Flash opened") stays. The sender can never open their own snap,
 // and nobody who isn't the recipient can open it either.
-const MIME_BY_EXT = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
+const MIME_BY_EXT = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime' };
 app.post('/api/messages/:messageId/open', requireAuth, async (req, res) => {
   const mid = +req.params.messageId;
   const m = Number.isInteger(mid) && mid > 0 ? await db.prepare('SELECT * FROM messages WHERE id = ?').get(mid) : null;
@@ -759,6 +800,16 @@ app.post('/api/messages/:messageId/open', requireAuth, async (req, res) => {
   if (m.sender_id === req.user.id) return res.status(403).json({ error: 'You sent this Flash — only the friend you sent it to can open it.' });
   if (m.recipient_id !== req.user.id) return res.status(403).json({ error: 'That Flash was not sent to you.' });
   if (m.opened_at) return res.status(410).json({ error: 'That Flash was already opened — it\'s gone now.' });
+  const kind = m.media_type === 'video' ? 'video' : (m.media_type === 'image' ? 'photo' : 'text');
+  if (kind === 'text') {
+    // FLASH TEXT reveal: the words themselves are the payload. Hand
+    // them over exactly once and wipe the stored body in the same
+    // request — after this the row is a tombstone holding nothing.
+    const text = m.text;
+    await db.prepare("UPDATE messages SET opened_at = datetime('now'), text = '' WHERE id = ?").run(m.id);
+    wsSend(m.sender_id, { type: 'snap-opened', messageId: m.id, userId: req.user.id });
+    return res.json({ kind: 'text', text });
+  }
   if (!m.media_url) return res.status(410).json({ error: 'That Flash is gone.' });
   // Fetch the bytes BEFORE destroying the stored copy.
   let bytes = null, mime = 'application/octet-stream';

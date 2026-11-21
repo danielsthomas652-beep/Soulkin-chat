@@ -268,7 +268,9 @@
   </div>
   <div class="snap-stage" id="snapStage">
     <img id="snapImg" alt="Snap">
-    <p class="snap-note">Enjoy it now — this Flash is gone when you close it. 📸</p>
+    <video id="snapVideo" class="hidden" playsinline controls></video>
+    <p id="snapText" class="snap-text hidden"></p>
+    <p class="snap-note" id="snapNote">Enjoy it now — this Flash is gone when you close it. 📸</p>
   </div>
 </div>
 
@@ -353,9 +355,11 @@
   <div class="thread-body" id="threadBody"></div>
   <form class="thread-form" id="threadForm">
     <button class="thread-attach" id="threadAttach" type="button" aria-label="Send a photo">📷</button>
+    <button class="thread-flash" id="threadFlash" type="button" aria-pressed="false" title="Send as a disappearing Flash">⚡ Flash</button>
     <input id="threadText" maxlength="1000" placeholder="Write a message…" autocomplete="off">
     <button class="btn red" type="submit">Send</button>
     <input type="file" id="threadPhotoFile" accept="image/*" class="hidden">
+    <input type="file" id="threadVideoFile" accept="video/*" class="hidden">
   </form>
 </div>
 

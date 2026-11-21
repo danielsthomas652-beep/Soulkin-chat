@@ -462,13 +462,17 @@ $('#editorPost').addEventListener('click', async () => {
  *     open (sendThreadPhoto), as a photo DM.
  *   'snap' — sends it to that same friend as a DISAPPEARING snap
  *     (sendThreadSnap): they get one look, then the picture is deleted.
+ *   'snapvideo' — records a video (the camera opens straight into
+ *     video mode) and sends it to that friend as a DISAPPEARING Flash
+ *     video (sendThreadFlashVideo): one watch, then it's deleted.
  * Leaving the camera screen (capture, ✕, Escape) always stops its
  * tracks; closing without capturing changes nothing.
  *
  * VIDEO MODE (TikTok-style recording): the camera screen also has a
  * Photo / Video toggle — but only for the 'editor' target, because
  * recording is a post-making feature (thread/snap cameras stay
- * photo-only and never even show the toggle). Video mode restarts the
+ * photo-only and never even show the toggle; the 'snapvideo' camera
+ * is the one exception — it opens locked into video mode, no toggle). Video mode restarts the
  * stream WITH the microphone and records with MediaRecorder at a low
  * bitrate (about 1.2 Mbps video + 64 kbps audio, so a take stays
  * small), capped at the picked length (60 sec / 2 min / 3 min,
@@ -480,7 +484,7 @@ $('#editorPost').addEventListener('click', async () => {
  * camera mid-recording discards the take and stops all tracks. */
 let camStream = null;
 let camFacing = 'environment'; // rear camera first — for photographing other people
-let camTarget = 'editor'; // 'editor' | 'thread' | 'snap' — set by openCamera()
+let camTarget = 'editor'; // 'editor' | 'thread' | 'snap' | 'snapvideo' — set by openCamera()
 let camMode = 'photo'; // 'photo' | 'video' — video only for the 'editor' target
 let camRecorder = null; // MediaRecorder while a take is being recorded
 let camChunks = []; // recorded pieces of the current take
@@ -527,15 +531,17 @@ async function startCameraStream() {
   }
 }
 async function openCamera(target) {
-  camTarget = (target === 'thread' || target === 'snap') ? target : 'editor';
-  camMode = 'photo'; // every visit starts in photo mode, like before
+  camTarget = (target === 'thread' || target === 'snap' || target === 'snapvideo') ? target : 'editor';
+  camMode = camTarget === 'snapvideo' ? 'video' : 'photo'; // a Flash video opens straight into video mode; every other visit starts in photo mode, like before
   camMaxSeconds = 60; // …and with the shortest length picked
   renderCamLength();
   hideCamPreview();
   // The Photo / Video toggle only exists for making posts; the thread
-  // and snap cameras stay photo-only, so their toggle is hidden.
+  // cameras never show it (photo-only thread/snap, locked-video
+  // snapvideo), so their toggle is hidden.
   $('#camModeRow').classList.toggle('hidden', camTarget !== 'editor');
   renderCamMode();
+  if (camTarget === 'snapvideo') $('#camLengthRow').classList.add('hidden'); // one short fixed length keeps a Flash video under its size cap
   $('#cameraView').classList.remove('hidden');
   $('#camHint').textContent = 'Starting your camera…';
   try { await startCameraStream(); }
@@ -683,8 +689,10 @@ function useRecordedVideo() {
   if (!camRecordedBlob) return;
   const isMp4 = camRecordedType.includes('mp4');
   const file = new File([camRecordedBlob], isMp4 ? 'recorded-video.mp4' : 'recorded-video.webm', { type: isMp4 ? 'video/mp4' : 'video/webm' });
+  const target = camTarget;
   hideCamPreview();
   closeCamera();
+  if (target === 'snapvideo') { sendThreadFlashVideo(file); return; } // disappearing Flash video to the open thread
   setEditorFile(file, 'video'); // the same draft state the gallery picker feeds
   openEditor(false);
   toast('Got your video! Add music or words, then tap Post 🎬');
@@ -1263,19 +1271,23 @@ document.addEventListener('click', async (e) => {
 
 /* ================= messages (private 1:1 chat between friends) =================
  * The Chat tab lists one row per friend: last message preview (a photo
- * with no caption previews as "📷 Photo"; a snap previews as "📸 Flash"
- * or "📸 Flash opened") + unread count. Tapping a row (or the Message
- * button in the Friends list) opens the thread full-screen; opening it
- * marks their messages to me as read (the server does that in
+ * with no caption previews as "📷 Photo"; a Flash previews by kind —
+ * "📸 Flash", "⚡ Flash message", "⚡ Flash video", each +" opened"
+ * once spent) + unread count. Tapping a row (or the Message button in
+ * the Friends list) opens the thread full-screen; opening it marks
+ * their messages to me as read (the server does that in
  * GET /api/messages/:userId). A thread carries text, photo messages —
  * the 📷 button beside the input sends a picture from the gallery or
- * the in-app camera — and DISAPPEARING SNAPS: a snap arrives as a
- * tap-to-view chip (never a picture; the server never sends its URL),
- * and the one tap spends it — the server streams the bytes once and
- * deletes its copy in the same request. New messages arrive live over
- * the same WebSocket as call signaling: {type:'dm'} appends to an open
- * thread, {type:'dm-unread'} refreshes the badge on the Chat tab, and
- * {type:'snap-opened'} flips the sender's chip to "opened". */
+ * the in-app camera — and DISAPPEARING FLASHES of three kinds: a photo
+ * (camera 'snap'), a text (the ⚡ Flash toggle beside the input), and
+ * a video (the attach sheet's Flash video choices). A Flash arrives
+ * as a tap-to-view chip (never the content; the server never sends a
+ * media URL, and a Flash text's body is withheld from every payload),
+ * and the one tap spends it — the server hands the content over once
+ * and destroys its copy in the same request. New messages arrive live
+ * over the same WebSocket as call signaling: {type:'dm'} appends to
+ * an open thread, {type:'dm-unread'} refreshes the badge on the Chat
+ * tab, and {type:'snap-opened'} flips the sender's chip to "opened". */
 let chatPeer = null; // the friend whose thread is open: {id, displayName, username}
 
 function setUnreadBadge(n) {
@@ -1286,10 +1298,17 @@ function setUnreadBadge(n) {
 async function refreshUnreadBadge() {
   try { const data = await api('/api/conversations'); setUnreadBadge(data.totalUnread); } catch (e) { /* best-effort */ }
 }
+/* What a Flash is called, by kind (the server's snapKind): the
+ * original camera photo keeps its 📸 name; the text and video kinds
+ * get the ⚡ name. Previews read "⚡ Flash video" / "⚡ Flash message"
+ * (+" opened" once spent); bubbles read "<name> — sent / opened /
+ * tap to view". */
+function snapNoun(kind) { return kind === 'video' ? '⚡ Flash video' : kind === 'text' ? '⚡ Flash message' : '📸 Flash'; }
+function snapPreviewText(m) { const noun = snapNoun(m.snapKind); return m.snapOpened ? noun + ' opened' : noun; }
 function convoRowHTML(c) {
   const u = c.user;
   const last = c.lastMessage;
-  const preview = last ? (last.mine ? 'You: ' : '') + (last.isSnap ? (last.snapOpened ? '📸 Flash opened' : '📸 Flash') : (last.text || (last.mediaUrl ? '📷 Photo' : ''))) : 'Say hi! 👋';
+  const preview = last ? (last.mine ? 'You: ' : '') + (last.isSnap ? snapPreviewText(last) : (last.text || (last.mediaUrl ? '📷 Photo' : ''))) : 'Say hi! 👋';
   const when = last ? timeAgo(last.createdAt) : '';
   const pill = c.unread ? `<span class="unread-pill">${c.unread > 99 ? '99+' : c.unread}</span>` : '';
   return `<div class="card person convo" data-convo="${u.id}" data-msgname="${esc(u.displayName)}" data-msguser="${esc(u.username)}">${userAvatarHTML(u, 'md')}
@@ -1308,14 +1327,17 @@ async function loadConversations() {
 function bubbleHTML(m) {
   const text = m.text ? `<div class="bubble">${esc(m.text)}</div>` : '';
   if (m.isSnap) {
-    // A snap bubble NEVER carries the picture itself (the server never
-    // sends its URL). Mine shows sent/opened; theirs is a tap-to-view
-    // chip until the one open spends it, then a tombstone.
+    // A snap bubble NEVER carries the content itself (the server never
+    // sends a media URL, and a Flash text's body is withheld too).
+    // Mine shows sent/opened; theirs is a tap-to-view chip until the
+    // one open spends it, then a tombstone. The chip is labelled by
+    // kind — photo 📸, text/video ⚡ (see snapNoun).
+    const noun = snapNoun(m.snapKind);
     let chip;
-    if (m.mine) chip = `<div class="snap-chip ${m.snapOpened ? 'opened' : ''}">📸 Flash — ${m.snapOpened ? 'opened' : 'sent'}</div>`;
-    else if (m.snapOpened) chip = '<div class="snap-chip opened">📸 Flash — opened</div>';
-    else chip = `<button class="snap-chip tap" type="button" data-snap-open="${m.id}">📸 Flash — tap to view</button>`;
-    return `<div class="bubble-row ${m.mine ? 'mine' : 'theirs'}" data-msg-row="${m.id}">${chip}${text}<div class="btime">${timeAgo(m.createdAt)}</div></div>`;
+    if (m.mine) chip = `<div class="snap-chip ${m.snapOpened ? 'opened' : ''}">${noun} — ${m.snapOpened ? 'opened' : 'sent'}</div>`;
+    else if (m.snapOpened) chip = `<div class="snap-chip opened">${noun} — opened</div>`;
+    else chip = `<button class="snap-chip tap" type="button" data-snap-open="${m.id}" data-snap-kind="${esc(m.snapKind || 'photo')}">${noun} — tap to view</button>`;
+    return `<div class="bubble-row ${m.mine ? 'mine' : 'theirs'}" data-msg-row="${m.id}" data-snap-kind="${esc(m.snapKind || 'photo')}">${chip}${text}<div class="btime">${timeAgo(m.createdAt)}</div></div>`;
   }
   const photo = m.mediaUrl ? `<a class="bubble-photo" href="${esc(m.mediaUrl)}" target="_blank" rel="noopener"><img src="${esc(m.mediaUrl)}" alt="Photo" loading="lazy"></a>` : '';
   return `<div class="bubble-row ${m.mine ? 'mine' : 'theirs'}" data-msg-row="${m.id}">${photo}${text}<div class="btime">${timeAgo(m.createdAt)}</div></div>`;
@@ -1323,6 +1345,7 @@ function bubbleHTML(m) {
 function scrollThread() { const b = $('#threadBody'); b.scrollTop = b.scrollHeight; }
 async function openThread(user) {
   chatPeer = user;
+  setThreadFlash(false); // a Flash is always a fresh, deliberate choice
   $('#threadAvatar').innerHTML = userAvatarHTML(user, 'sm');
   $('#threadName').textContent = user.displayName;
   const callLink = $('#threadCall'); // 📞 Call — shown only when the server shared a number
@@ -1348,6 +1371,7 @@ async function openThread(user) {
 }
 function closeThread() {
   chatPeer = null;
+  setThreadFlash(false);
   $('#threadView').classList.add('hidden');
   if (currentView === 'chat') loadConversations();
 }
@@ -1355,40 +1379,86 @@ $('#threadBack').addEventListener('click', closeThread);
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && chatPeer) closeThread();
 });
+/* ---- Flash text toggle ----
+ * The ⚡ Flash chip beside the thread input: while it's ON, the Send
+ * button sends the typed words as a disappearing Flash text message
+ * (JSON { text, snap: true }) instead of a regular message — the
+ * server withholds the body from every payload until the recipient's
+ * one open spends it. Sending flips the chip back OFF, and so does
+ * opening or leaving a thread, so a Flash is always a deliberate
+ * choice, never a sticky surprise. */
+let threadFlashOn = false;
+function setThreadFlash(on) {
+  threadFlashOn = !!on;
+  const chip = $('#threadFlash');
+  chip.classList.toggle('on', threadFlashOn);
+  chip.setAttribute('aria-pressed', threadFlashOn ? 'true' : 'false');
+  $('#threadText').placeholder = threadFlashOn ? 'Write a Flash — gone after they read it…' : 'Write a message…';
+}
+$('#threadFlash').addEventListener('click', () => setThreadFlash(!threadFlashOn));
 $('#threadForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!chatPeer) return;
   const input = $('#threadText');
   const text = input.value.trim();
   if (!text) return;
+  const asFlash = threadFlashOn;
   try {
-    const r = await api('/api/messages/' + chatPeer.id, { method: 'POST', body: JSON.stringify({ text }) });
+    const body = { text };
+    if (asFlash) body.snap = true; // ⚡ Flash text: disappears after they read it
+    const r = await api('/api/messages/' + chatPeer.id, { method: 'POST', body: JSON.stringify(body) });
     const empty = $('#threadBody .empty'); if (empty) empty.remove();
     $('#threadBody').insertAdjacentHTML('beforeend', bubbleHTML(r.message));
     input.value = '';
+    if (asFlash) { setThreadFlash(false); toast('Flash sent ⚡ — it disappears when they open it'); }
     scrollThread();
   } catch (ex) { toast(ex.message); }
 });
 /* ---- photo messages + snaps ----
- * The 📷 button beside the thread input opens a small sheet with three
+ * The 📷 button beside the thread input opens a small sheet with five
  * choices, in the same style as the other sheets: Photo (pick from the
  * gallery) or Camera (the in-app camera, opened in its 'thread' mode so
  * the capture comes back here instead of the post editor) — both end in
- * sendThreadPhoto — or Snap (the camera in its 'snap' mode), which ends
+ * sendThreadPhoto — Snap (the camera in its 'snap' mode), which ends
  * in sendThreadSnap: a disappearing picture the friend can open exactly
- * once. All post multipart — the same 'media' field posts use — with
- * anything typed in the input as the caption. */
+ * once — and two Flash video choices (record with the camera in its
+ * 'snapvideo' mode, or pick a video from the gallery), both ending in
+ * sendThreadFlashVideo. Media sends post multipart — the same 'media'
+ * field posts use — with anything typed in the input as the caption
+ * (Flash videos carry no caption — video only). */
 function openThreadAttach() {
   if (!chatPeer) return;
   openSheet('Send a photo 📷');
   $('#sheetBody').innerHTML = '<div class="attach-choices">' +
     '<button class="btn block" id="attPhoto" type="button">📷 Photo — pick from your pictures</button>' +
     '<button class="btn block" id="attCamera" type="button">📸 Camera — take a new picture</button>' +
-    '<button class="btn block" id="attSnap" type="button">📸 Flash — disappears after they see it</button></div>';
+    '<button class="btn block" id="attSnap" type="button">📸 Flash — disappears after they see it</button>' +
+    '<button class="btn block" id="attFlashVideoCam" type="button">⚡ Flash video — record with camera</button>' +
+    '<button class="btn block" id="attFlashVideoPick" type="button">⚡ Flash video — pick from your videos</button></div>';
   $('#attPhoto').addEventListener('click', () => { closeSheet(); $('#threadPhotoFile').click(); });
   $('#attCamera').addEventListener('click', () => { closeSheet(); openCamera('thread'); });
   $('#attSnap').addEventListener('click', () => { closeSheet(); openCamera('snap'); });
+  $('#attFlashVideoCam').addEventListener('click', () => { closeSheet(); openCamera('snapvideo'); });
+  $('#attFlashVideoPick').addEventListener('click', () => { closeSheet(); $('#threadVideoFile').click(); });
 }
+async function sendThreadFlashVideo(file) {
+  if (!chatPeer || !file) return;
+  const peerId = chatPeer.id;
+  const fd = new FormData();
+  fd.append('snap', '1');
+  fd.append('media', file); // video only — no caption on a Flash video
+  try {
+    const res = await fetch('/api/messages/' + peerId, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'That Flash video could not be sent.');
+    if (!chatPeer || chatPeer.id !== peerId) return; // thread closed or switched while sending
+    const empty = $('#threadBody .empty'); if (empty) empty.remove();
+    $('#threadBody').insertAdjacentHTML('beforeend', bubbleHTML(data.message));
+    scrollThread();
+    toast('Flash video sent ⚡ — it disappears when they watch it');
+  } catch (ex) { toast(ex.message); }
+}
+$('#threadVideoFile').addEventListener('change', (e) => { if (e.target.files[0]) sendThreadFlashVideo(e.target.files[0]); e.target.value = ''; });
 async function sendThreadSnap(file) {
   if (!chatPeer || !file) return;
   const peerId = chatPeer.id;
@@ -1409,29 +1479,78 @@ async function sendThreadSnap(file) {
     toast('Flash sent 📸 — it disappears when they open it');
   } catch (ex) { toast(ex.message); }
 }
-/* ---- opening a snap (recipient, exactly once) ----
- * Tapping a snap chip calls the open endpoint, which streams the
- * picture bytes AND deletes the stored copy in the same request. The
- * bytes live only in an object URL for the viewer, revoked the moment
- * it closes — nothing is kept, cached or re-openable. */
+/* ---- opening a Flash (recipient, exactly once) ----
+ * Tapping a Flash chip calls the open endpoint, which hands over the
+ * content AND destroys the server's copy in the same request. What
+ * comes back depends on the kind: a photo or video Flash streams its
+ * bytes (shown in this viewer, media living only in an object URL,
+ * revoked the moment it closes); a text Flash answers JSON with the
+ * words (shown big in the same viewer). Nothing is kept, cached or
+ * re-openable. */
 let snapObjectUrl = null;
+function hideSnapMedia() {
+  const img = $('#snapImg');
+  img.classList.add('hidden');
+  img.removeAttribute('src');
+  const vid = $('#snapVideo');
+  try { vid.pause(); } catch (e) { /* ignore */ }
+  vid.classList.add('hidden');
+  vid.removeAttribute('src');
+  try { vid.load(); } catch (e) { /* ignore */ }
+  const txt = $('#snapText');
+  txt.classList.add('hidden');
+  txt.textContent = '';
+}
 function showSnapViewer(url) {
+  hideSnapMedia();
   snapObjectUrl = url;
-  $('#snapImg').src = url;
+  const img = $('#snapImg');
+  img.src = url;
+  img.classList.remove('hidden');
+  $('#snapNote').textContent = 'Enjoy it now — this Flash is gone when you close it. 📸';
+  $('#snapView').classList.remove('hidden');
+}
+function showSnapVideoViewer(url) {
+  hideSnapMedia();
+  snapObjectUrl = url;
+  const vid = $('#snapVideo');
+  vid.src = url;
+  vid.classList.remove('hidden');
+  $('#snapNote').textContent = 'Enjoy it now — this Flash is gone when you close it. ⚡';
+  $('#snapView').classList.remove('hidden');
+  try { const p = vid.play(); if (p && p.catch) p.catch(() => { /* the controls still let them press play */ }); } catch (e) { /* ignore */ }
+}
+function showSnapTextViewer(text) {
+  hideSnapMedia();
+  const txt = $('#snapText');
+  txt.textContent = text;
+  txt.classList.remove('hidden');
+  $('#snapNote').textContent = 'Tap to close — this Flash is gone after you close it.';
   $('#snapView').classList.remove('hidden');
 }
 function closeSnapViewer() {
   $('#snapView').classList.add('hidden');
-  $('#snapImg').removeAttribute('src');
+  hideSnapMedia();
   if (snapObjectUrl) { URL.revokeObjectURL(snapObjectUrl); snapObjectUrl = null; }
 }
 $('#snapClose').addEventListener('click', closeSnapViewer);
-$('#snapStage').addEventListener('click', closeSnapViewer);
+$('#snapStage').addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'snapVideo') return; // taps on the video belong to its controls, not to closing
+  closeSnapViewer();
+});
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !$('#snapView').classList.contains('hidden')) closeSnapViewer();
 });
+function settleSnapChip(chip, kind) {
+  if (!chip) return;
+  const tomb = document.createElement('div');
+  tomb.className = 'snap-chip opened';
+  tomb.textContent = snapNoun(kind) + ' — opened';
+  chip.replaceWith(tomb);
+}
 async function openSnap(id, chip) {
   if (chip) chip.disabled = true;
+  const kind = chip && chip.dataset ? chip.dataset.snapKind : undefined;
   try {
     const res = await fetch('/api/messages/' + id + '/open', { method: 'POST' });
     if (!res.ok) {
@@ -1439,12 +1558,19 @@ async function openSnap(id, chip) {
       try { const d = await res.json(); if (d.error) msg = d.error; } catch (e) { /* keep default */ }
       toast(msg);
       // It's spent either way — settle the chip into its tombstone.
-      if (chip) { const tomb = document.createElement('div'); tomb.className = 'snap-chip opened'; tomb.textContent = '📸 Flash — opened'; chip.replaceWith(tomb); }
+      settleSnapChip(chip, kind);
       return;
     }
-    const blob = await res.blob();
-    if (chip) { const tomb = document.createElement('div'); tomb.className = 'snap-chip opened'; tomb.textContent = '📸 Flash — opened'; chip.replaceWith(tomb); }
-    showSnapViewer(URL.createObjectURL(blob));
+    const ct = res.headers.get('content-type') || '';
+    settleSnapChip(chip, kind);
+    if (ct.includes('application/json')) {
+      const d = await res.json();
+      showSnapTextViewer(d.text || '');
+    } else if (ct.startsWith('video/')) {
+      showSnapVideoViewer(URL.createObjectURL(await res.blob()));
+    } else {
+      showSnapViewer(URL.createObjectURL(await res.blob()));
+    }
     if (currentView === 'chat') loadConversations();
   } catch (ex) {
     toast('That Flash could not be opened.');
@@ -1459,8 +1585,9 @@ document.addEventListener('click', (e) => {
  * the open thread (reload shows the same tombstone from the server). */
 function onSnapOpened(m) {
   if (chatPeer && chatPeer.id === m.userId) {
-    const chip = document.querySelector('[data-msg-row="' + m.messageId + '"] .snap-chip');
-    if (chip) { chip.textContent = '📸 Flash — opened'; chip.classList.add('opened'); }
+    const row = document.querySelector('[data-msg-row="' + m.messageId + '"]');
+    const chip = row ? row.querySelector('.snap-chip') : null;
+    if (chip) { chip.textContent = snapNoun(row.dataset.snapKind) + ' — opened'; chip.classList.add('opened'); }
   }
   if (currentView === 'chat') loadConversations();
 }
@@ -1512,7 +1639,7 @@ function onIncomingDm(m) {
     scrollThread();
     api('/api/messages/' + msg.senderId).then(() => refreshUnreadBadge()).catch(() => {});
   } else if (msg.from) {
-    const shown = msg.isSnap ? '📸 Flash' : (msg.text || (msg.mediaUrl ? '📷 Photo' : ''));
+    const shown = msg.isSnap ? snapPreviewText(msg) : (msg.text || (msg.mediaUrl ? '📷 Photo' : ''));
     toast('💬 ' + msg.from.displayName + ': ' + (shown.length > 60 ? shown.slice(0, 60) + '…' : shown));
   }
   if (currentView === 'chat') loadConversations();
