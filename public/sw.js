@@ -1,19 +1,26 @@
 'use strict';
 /* mLT. chat service worker — deliberately boring.
  *
- * The app changes often, so pages and code are NETWORK-FIRST: a stale
- * cached app.js is the one big risk, and we never serve one when the
- * network can answer. The cache only keeps (a) the logo/icons
- * (cache-first, they basically never change) and (b) the last good
- * copy of a page, used only when the network is unreachable.
- * /api and /media are NEVER cached — live data stays live.
+ * Pages and code are NETWORK-ONLY: this worker never answers a
+ * navigation, script or style request from a cache. An earlier
+ * version kept a "last good copy" of each page as an offline
+ * fallback, and that backfired — the owner kept being shown a
+ * stale cached page labelled as an offline copy even while he was
+ * online, which just confused him. Live-or-error is clearer: if
+ * the network can't answer, the browser shows its own network
+ * error and nothing pretends otherwise.
+ *
+ * The ONLY thing cached is the logo + icons (cache-first, they
+ * basically never change) — that's what the home-screen install
+ * needs. /api and /media are NEVER intercepted — live data stays
+ * live.
  *
  * Bump VERSION on any deploy that must retire old workers/caches.
+ * v2 retires the v1 caches, including the old page cache.
  */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const STATIC_CACHE = `mlt-static-${VERSION}`;
-const PAGE_CACHE = `mlt-pages-${VERSION}`;
-const KEEP_CACHES = [STATIC_CACHE, PAGE_CACHE];
+const KEEP_CACHES = [STATIC_CACHE];
 const STATIC_FILES = ['/logo.webp', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'];
 
 self.addEventListener('install', (event) => {
@@ -53,24 +60,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Pages, scripts and styles: network-first. The fresh copy wins;
-  // the cache is only an offline fallback.
-  if (request.mode === 'navigate' || ['document', 'script', 'style'].includes(request.destination)) {
-    event.respondWith(
-      fetch(request)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(PAGE_CACHE).then((cache) => cache.put(request, copy));
-          return res;
-        })
-        .catch(() => caches.match(request).then((hit) => hit ||
-          new Response('You are offline — mLT. chat will be right back.', {
-            status: 503,
-            headers: { 'Content-Type': 'text/plain' },
-          })))
-    );
-    return;
-  }
-
-  // Everything else (uploads, images, …): straight to the network.
+  // Everything else — pages, scripts, styles, uploads, images —
+  // is NOT intercepted: the browser fetches it from the network,
+  // and if the network fails the request fails with the browser's
+  // own error. No cached copies, no synthesized offline page.
 });
