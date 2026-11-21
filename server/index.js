@@ -453,6 +453,7 @@ app.get('/api/friends', requireAuth, async (req, res) => {
 function messageRow(m, meId) {
   return {
     id: m.id, senderId: m.sender_id, recipientId: m.recipient_id, text: m.text,
+    mediaUrl: m.media_url || null, mediaType: m.media_type || null,
     createdAt: m.created_at, readAt: m.read_at, mine: m.sender_id === meId,
   };
 }
@@ -476,14 +477,44 @@ async function messagingGate(me, otherId) {
   }
   return { other };
 }
-app.post('/api/messages/:userId', requireAuth, async (req, res) => {
+// A message can carry one PHOTO (no video DMs), with or without a text
+// caption. Photo messages arrive as multipart/form-data (field name
+// 'media', same as posts) and the image is stored exactly like post
+// media: a media_blobs row served at /media/:id in cloud mode, an
+// /uploads/ file in local mode, capped at the posts photo cap (5 MB).
+// Text-only messages keep arriving as JSON. The gate runs first and is
+// unchanged — photos get no shortcut around the friend rules.
+app.post('/api/messages/:userId', requireAuth, upload.single('media'), async (req, res) => {
   const gate = await messagingGate(req.user, +req.params.userId);
-  if (!gate.other) return res.status(gate.status).json({ error: gate.error });
+  if (!gate.other) {
+    if (req.file && req.file.path) { try { fs.unlinkSync(req.file.path); } catch (e) { /* already gone */ } }
+    return res.status(gate.status).json({ error: gate.error });
+  }
   const raw = String((req.body || {}).text || '').trim();
-  if (!raw) return res.status(400).json({ error: 'Write a message first.' });
   const text = cleanText(raw.slice(0, 1000));
-  const info = await db.prepare('INSERT INTO messages (sender_id, recipient_id, text) VALUES (?, ?, ?)')
-    .run(req.user.id, gate.other.id, text);
+  let mediaUrl = null, mediaType = null;
+  if (req.file) {
+    if (!req.file.mimetype.startsWith('image/')) {
+      if (req.file.path) { try { fs.unlinkSync(req.file.path); } catch (e) { /* already gone */ } }
+      return res.status(400).json({ error: 'Messages can only carry pictures — videos are for posts.' });
+    }
+    if (req.file.size > PHOTO_BLOB_MAX) {
+      if (req.file.path) { try { fs.unlinkSync(req.file.path); } catch (e) { /* already gone */ } }
+      return res.status(413).json({ error: 'That photo is too big (5 MB max).' });
+    }
+    if (cloudMode) {
+      const blobId = crypto.randomBytes(12).toString('hex');
+      await db.prepare('INSERT INTO media_blobs (id, user_id, mime, data) VALUES (?, ?, ?, ?)')
+        .run(blobId, req.user.id, req.file.mimetype, req.file.buffer);
+      mediaUrl = '/media/' + blobId;
+    } else {
+      mediaUrl = '/uploads/' + req.file.filename;
+    }
+    mediaType = 'image';
+  }
+  if (!text && !mediaUrl) return res.status(400).json({ error: 'Write a message or add a picture first.' });
+  const info = await db.prepare('INSERT INTO messages (sender_id, recipient_id, text, media_url, media_type) VALUES (?, ?, ?, ?, ?)')
+    .run(req.user.id, gate.other.id, text, mediaUrl, mediaType);
   const row = await db.prepare('SELECT * FROM messages WHERE id = ?').get(info.lastInsertRowid);
   // Live push to the recipient (if they're here right now): the message
   // itself, then their new unread total for the Chat badge.

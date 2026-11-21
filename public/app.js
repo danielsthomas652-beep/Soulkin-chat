@@ -316,13 +316,18 @@ $('#editorPost').addEventListener('click', async () => {
  * Post Editor) open a full-screen viewfinder that starts on the REAR
  * camera (facingMode 'environment') so you can photograph other people;
  * Flip switches to the front camera ('user') and back. Take picture
- * draws the current frame to a canvas and drops the JPEG into the Post
- * Editor as the draft's photo — the exact same setEditorFile() state
- * the gallery picker feeds, so posting works exactly as before.
+ * draws the current frame to a canvas and produces a JPEG File.
+ * Where the photo goes depends on who opened the camera (camTarget):
+ *   'editor' (default) — drops into the Post Editor as the draft's
+ *     photo, the exact same setEditorFile() state the gallery picker
+ *     feeds, so posting works exactly as before.
+ *   'thread' — sends it straight to the friend whose message thread is
+ *     open (sendThreadPhoto), as a photo DM.
  * Leaving the camera screen (capture, ✕, Escape) always stops its
- * tracks; closing without capturing leaves the draft untouched. */
+ * tracks; closing without capturing changes nothing. */
 let camStream = null;
 let camFacing = 'environment'; // rear camera first — for photographing other people
+let camTarget = 'editor'; // 'editor' | 'thread' — set by openCamera()
 
 function cameraErrorMessage(e) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || (e && e.name === 'UnsupportedError')) {
@@ -351,7 +356,8 @@ async function startCameraStream() {
     ? 'Back camera — point it at your picture, then tap the big button 📸'
     : 'Front camera — tap the big button when you\'re ready 📸';
 }
-async function openCamera() {
+async function openCamera(target) {
+  camTarget = target === 'thread' ? 'thread' : 'editor';
   $('#cameraView').classList.remove('hidden');
   $('#camHint').textContent = 'Starting your camera…';
   try { await startCameraStream(); }
@@ -376,14 +382,16 @@ function capturePhoto() {
   canvas.toBlob((blob) => {
     if (!blob) { toast('That picture did not come out — try again.'); return; }
     const file = new File([blob], 'camera-photo.jpg', { type: 'image/jpeg' });
+    const target = camTarget;
     closeCamera();
+    if (target === 'thread') { sendThreadPhoto(file); return; } // photo DM to the open thread
     setEditorFile(file, 'image'); // the same draft state the gallery picker feeds
     openEditor(false);
     toast('Got it! Add some words, then tap Post 📸');
   }, 'image/jpeg', 0.92);
 }
-$('#btnCamera').addEventListener('click', openCamera);
-$('#edBtnCamera').addEventListener('click', openCamera);
+$('#btnCamera').addEventListener('click', () => openCamera('editor'));
+$('#edBtnCamera').addEventListener('click', () => openCamera('editor'));
 $('#camClose').addEventListener('click', closeCamera);
 $('#camFlip').addEventListener('click', flipCamera);
 $('#camCapture').addEventListener('click', capturePhoto);
@@ -817,13 +825,15 @@ document.addEventListener('click', async (e) => {
 });
 
 /* ================= messages (private 1:1 chat between friends) =================
- * The Chat tab lists one row per friend: last message preview + unread
- * count. Tapping a row (or the Message button in the Friends list)
- * opens the thread full-screen; opening it marks their messages to me
- * as read (the server does that in GET /api/messages/:userId). New
- * messages arrive live over the same WebSocket as call signaling:
- * {type:'dm'} appends to an open thread, {type:'dm-unread'} refreshes
- * the badge on the Chat tab. */
+ * The Chat tab lists one row per friend: last message preview (a photo
+ * with no caption previews as "📷 Photo") + unread count. Tapping a row
+ * (or the Message button in the Friends list) opens the thread
+ * full-screen; opening it marks their messages to me as read (the
+ * server does that in GET /api/messages/:userId). A thread carries text
+ * and photo messages — the 📷 button beside the input sends a picture
+ * from the gallery or the in-app camera. New messages arrive live over
+ * the same WebSocket as call signaling: {type:'dm'} appends to an open
+ * thread, {type:'dm-unread'} refreshes the badge on the Chat tab. */
 let chatPeer = null; // the friend whose thread is open: {id, displayName, username}
 
 function setUnreadBadge(n) {
@@ -837,7 +847,7 @@ async function refreshUnreadBadge() {
 function convoRowHTML(c) {
   const u = c.user;
   const last = c.lastMessage;
-  const preview = last ? (last.mine ? 'You: ' : '') + last.text : 'Say hi! 👋';
+  const preview = last ? (last.mine ? 'You: ' : '') + (last.text || (last.mediaUrl ? '📷 Photo' : '')) : 'Say hi! 👋';
   const when = last ? timeAgo(last.createdAt) : '';
   const pill = c.unread ? `<span class="unread-pill">${c.unread > 99 ? '99+' : c.unread}</span>` : '';
   return `<div class="card person convo" data-convo="${u.id}" data-msgname="${esc(u.displayName)}" data-msguser="${esc(u.username)}">${avatarHTML(u.displayName, u.username, 'md')}
@@ -854,7 +864,9 @@ async function loadConversations() {
   } catch (e) { toast(e.message); }
 }
 function bubbleHTML(m) {
-  return `<div class="bubble-row ${m.mine ? 'mine' : 'theirs'}"><div class="bubble">${esc(m.text)}</div><div class="btime">${timeAgo(m.createdAt)}</div></div>`;
+  const photo = m.mediaUrl ? `<a class="bubble-photo" href="${esc(m.mediaUrl)}" target="_blank" rel="noopener"><img src="${esc(m.mediaUrl)}" alt="Photo" loading="lazy"></a>` : '';
+  const text = m.text ? `<div class="bubble">${esc(m.text)}</div>` : '';
+  return `<div class="bubble-row ${m.mine ? 'mine' : 'theirs'}">${photo}${text}<div class="btime">${timeAgo(m.createdAt)}</div></div>`;
 }
 function scrollThread() { const b = $('#threadBody'); b.scrollTop = b.scrollHeight; }
 async function openThread(user) {
@@ -900,6 +912,42 @@ $('#threadForm').addEventListener('submit', async (e) => {
     scrollThread();
   } catch (ex) { toast(ex.message); }
 });
+/* ---- photo messages ----
+ * The 📷 button beside the thread input opens a small sheet with two
+ * choices, in the same style as the other sheets: Photo (pick from the
+ * gallery) or Camera (the in-app camera, opened in its 'thread' mode so
+ * the capture comes back here instead of the post editor). Both paths
+ * end in sendThreadPhoto, which posts multipart — the same 'media'
+ * field posts use — with anything typed in the input as the caption. */
+function openThreadAttach() {
+  if (!chatPeer) return;
+  openSheet('Send a photo 📷');
+  $('#sheetBody').innerHTML = '<div class="attach-choices">' +
+    '<button class="btn block" id="attPhoto" type="button">📷 Photo — pick from your pictures</button>' +
+    '<button class="btn block" id="attCamera" type="button">📸 Camera — take a new picture</button></div>';
+  $('#attPhoto').addEventListener('click', () => { closeSheet(); $('#threadPhotoFile').click(); });
+  $('#attCamera').addEventListener('click', () => { closeSheet(); openCamera('thread'); });
+}
+async function sendThreadPhoto(file) {
+  if (!chatPeer || !file) return;
+  const peerId = chatPeer.id;
+  const fd = new FormData();
+  const caption = $('#threadText').value.trim();
+  if (caption) fd.append('text', caption);
+  fd.append('media', file);
+  try {
+    const res = await fetch('/api/messages/' + peerId, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'That photo could not be sent.');
+    if (!chatPeer || chatPeer.id !== peerId) return; // thread closed or switched while sending
+    const empty = $('#threadBody .empty'); if (empty) empty.remove();
+    $('#threadBody').insertAdjacentHTML('beforeend', bubbleHTML(data.message));
+    $('#threadText').value = '';
+    scrollThread();
+  } catch (ex) { toast(ex.message); }
+}
+$('#threadAttach').addEventListener('click', openThreadAttach);
+$('#threadPhotoFile').addEventListener('change', (e) => { if (e.target.files[0]) sendThreadPhoto(e.target.files[0]); e.target.value = ''; });
 /* conversation rows + Friends-list Message buttons open the thread */
 document.addEventListener('click', (e) => {
   const row = e.target.closest('[data-convo]');
@@ -918,7 +966,8 @@ function onIncomingDm(m) {
     scrollThread();
     api('/api/messages/' + msg.senderId).then(() => refreshUnreadBadge()).catch(() => {});
   } else if (msg.from) {
-    toast('💬 ' + msg.from.displayName + ': ' + (msg.text.length > 60 ? msg.text.slice(0, 60) + '…' : msg.text));
+    const shown = msg.text || (msg.mediaUrl ? '📷 Photo' : '');
+    toast('💬 ' + msg.from.displayName + ': ' + (shown.length > 60 ? shown.slice(0, 60) + '…' : shown));
   }
   if (currentView === 'chat') loadConversations();
 }

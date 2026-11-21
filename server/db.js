@@ -178,6 +178,8 @@ CREATE TABLE IF NOT EXISTS messages (
   sender_id INTEGER NOT NULL REFERENCES users(id),
   recipient_id INTEGER NOT NULL REFERENCES users(id),
   text TEXT NOT NULL,
+  media_url TEXT,
+  media_type TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   read_at TEXT
 );
@@ -196,6 +198,18 @@ async function initDb() {
   const cols = await db.prepare("SELECT name FROM pragma_table_info('friendships')").all();
   if (!cols.some((c) => c.name === 'known_confirmed')) {
     await db.exec('ALTER TABLE friendships ADD COLUMN known_confirmed INTEGER NOT NULL DEFAULT 0');
+  }
+  // Migration for databases created before photo DMs: messages.media_url /
+  // media_type carry an optional photo on a message, stored exactly like
+  // post media (a /media/:id blob in cloud mode, an /uploads/ file in
+  // local mode). Same reasoning as above — IF NOT EXISTS only covers
+  // fresh databases.
+  const msgCols = await db.prepare("SELECT name FROM pragma_table_info('messages')").all();
+  if (!msgCols.some((c) => c.name === 'media_url')) {
+    await db.exec('ALTER TABLE messages ADD COLUMN media_url TEXT');
+  }
+  if (!msgCols.some((c) => c.name === 'media_type')) {
+    await db.exec('ALTER TABLE messages ADD COLUMN media_type TEXT');
   }
 }
 

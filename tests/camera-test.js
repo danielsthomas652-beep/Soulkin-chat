@@ -127,7 +127,7 @@ async function main() {
 
     // --- served JS: the camera logic ---
     const js = await (await fetch(BASE + '/app.js')).text();
-    check('both Camera buttons open the camera screen', js.includes("$('#btnCamera').addEventListener('click', openCamera)") && js.includes("$('#edBtnCamera').addEventListener('click', openCamera)"));
+    check('both Camera buttons open the camera screen', js.includes("$('#btnCamera').addEventListener('click', () => openCamera('editor'))") && js.includes("$('#edBtnCamera').addEventListener('click', () => openCamera('editor'))"));
     check('camera uses getUserMedia for the viewfinder', js.includes('navigator.mediaDevices.getUserMedia'));
     check("camera starts on the REAR camera (facingMode 'environment')", js.includes("let camFacing = 'environment'") && js.includes('facingMode: camFacing'));
     check('Flip switches rear <-> front and restarts the stream', js.includes("camFacing === 'environment' ? 'user' : 'environment'") && js.includes("$('#camFlip').addEventListener('click', flipCamera)"));

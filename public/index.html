@@ -269,8 +269,10 @@
   </div>
   <div class="thread-body" id="threadBody"></div>
   <form class="thread-form" id="threadForm">
+    <button class="thread-attach" id="threadAttach" type="button" aria-label="Send a photo">📷</button>
     <input id="threadText" maxlength="1000" placeholder="Write a message…" autocomplete="off">
     <button class="btn red" type="submit">Send</button>
+    <input type="file" id="threadPhotoFile" accept="image/*" class="hidden">
   </form>
 </div>
 
