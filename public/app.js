@@ -102,7 +102,7 @@ $('#authForm').addEventListener('submit', async (e) => {
     }
     me = data.user;
     enterApp();
-    toast(authMode === 'signup' ? 'Welcome to mLT. chat! 🎉' : 'Welcome back! 👋');
+    toast(authMode === 'signup' ? 'Welcome to Sveiki Chat! 🎉' : 'Welcome back! 👋');
   } catch (ex) {
     err.textContent = ex.message; err.classList.remove('hidden');
   } finally { btn.disabled = false; }
@@ -2138,7 +2138,7 @@ $('#btnInstall').addEventListener('click', async () => {
     installPromptEvent = null;
     if (choice && choice.outcome === 'accepted') {
       $('#btnInstall').classList.add('hidden');
-      toast('mLT. chat is on your home screen 🎉');
+      toast('Sveiki Chat is on your home screen 🎉');
     }
   } else {
     const hint = $('#installHint');

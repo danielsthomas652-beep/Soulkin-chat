@@ -1,5 +1,5 @@
 'use strict';
-/* mLT. chat service worker — deliberately boring.
+/* Sveiki Chat service worker — deliberately boring.
  *
  * Pages and code are NETWORK-ONLY: this worker never answers a
  * navigation, script or style request from a cache. An earlier
@@ -17,8 +17,11 @@
  *
  * Bump VERSION on any deploy that must retire old workers/caches.
  * v2 retires the v1 caches, including the old page cache.
+ * v3 is the Sveiki Chat rename (was mLT. chat) — same behavior,
+ * new version so phones retire the old caches and pick up the
+ * renamed shell cleanly.
  */
-const VERSION = 'v2';
+const VERSION = 'v3';
 const STATIC_CACHE = `mlt-static-${VERSION}`;
 const KEEP_CACHES = [STATIC_CACHE];
 const STATIC_FILES = ['/logo.webp', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'];
