@@ -97,6 +97,11 @@
     <section id="view-friends" class="hidden">
       <div class="view-title"><span class="dot"></span> Friend requests</div>
       <div id="friendRequests"></div>
+      <div id="grownupRequests" class="hidden">
+        <div class="view-title"><span class="dot"></span> Requests from grown-ups</div>
+        <div class="warn-note">⚠️ These requests are from grown-ups. <b>Only accept people you know in real life.</b> If you don't know them, tap Decline.</div>
+        <div id="friendRequestsGrownups"></div>
+      </div>
       <div class="view-title"><span class="dot"></span> My friends</div>
       <div id="friendList"></div>
       <div class="view-title"><span class="dot"></span> Requests I sent</div>
@@ -169,6 +174,22 @@
     <div class="call-popup-btns">
       <button class="btn green" id="btnCallAccept" type="button">✓ Accept</button>
       <button class="btn red" id="btnCallDecline" type="button">✕ Decline</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ "KNOW IN REAL LIFE" CONFIRM ============ -->
+<div id="knowConfirm" class="call-popup hidden">
+  <div class="call-popup-in">
+    <div class="call-from" id="kcTitle">One quick check 🛡️</div>
+    <p class="call-sub" id="kcText"></p>
+    <label class="check" style="margin-top:14px; margin-bottom:0; text-align:left">
+      <input type="checkbox" id="kcCheck">
+      <span><b>I know this person in real life.</b></span>
+    </label>
+    <div class="call-popup-btns">
+      <button class="btn green" id="kcYes" type="button" disabled>OK</button>
+      <button class="btn ghost" id="kcNo" type="button">Cancel</button>
     </div>
   </div>
 </div>

@@ -10,9 +10,10 @@
  *   node tests/friends-test.js --engine=libsql # Turso facade via @libsql/client on a file: DB
  *
  * Covers: request/accept/decline/remove, duplicate + reverse + self request
- * refusal, /api/people relationship states, the Protected<->adult safety
- * rule (both directions refused; protected<->protected allowed), and
- * friendship persistence across a full server restart.
+ * refusal, /api/people relationship states, the cross-band rule in brief
+ * (Protected holds the key — the full matrix lives in
+ * tests/crossband-test.js), and friendship persistence across a full
+ * server restart.
  */
 const fs = require('fs');
 const os = require('os');
@@ -162,13 +163,21 @@ async function main() {
     r = await B.client.post('/api/friends/decline', { requestId: reqAB });
     check('decline of accepted friendship refused (409)', r.status === 409, `got ${r.status}`);
 
-    // --- safety rule ---
-    r = await C.client.post('/api/friends/request', { userId: P1.user.id });
-    check('adult → protected refused (403)', r.status === 403 && /safety/i.test(r.data.error || ''), `got ${r.status} ${JSON.stringify(r.data)}`);
+    // --- cross-band rule, in brief (full matrix: tests/crossband-test.js) ---
+    // The Protected user holds the key: a Protected sender must attest
+    // "knows in real life" before a request to an adult goes out, and a
+    // Protected addressee must attest before accepting an adult's request.
     r = await P1.client.post('/api/friends/request', { userId: C.user.id });
-    check('protected → adult refused (403)', r.status === 403, `got ${r.status}`);
+    check('protected → adult without attestation refused (400)', r.status === 400, `got ${r.status} ${JSON.stringify(r.data)}`);
+    r = await C.client.post('/api/friends/request', { userId: P1.user.id });
+    check('adult → protected request created pending, flagged cross-band (200)', r.status === 200 && r.data.crossBand === true, `got ${r.status} ${JSON.stringify(r.data)}`);
+    const reqCP = r.data.requestId;
+    r = await P1.client.post('/api/friends/accept', { requestId: reqCP });
+    check('protected accepting adult request without attestation refused (400)', r.status === 400, `got ${r.status}`);
+    r = await P1.client.post('/api/friends/decline', { requestId: reqCP });
+    check('protected can still decline the adult request (200)', r.status === 200, `got ${r.status}`);
     r = await P1.client.get('/api/friends');
-    check('no cross-band rows were created', r.data.friends.length === 0 && r.data.incoming.length === 0 && r.data.outgoing.length === 0, JSON.stringify(r.data));
+    check('no cross-band friendship resulted', r.data.friends.length === 0 && r.data.incoming.length === 0 && r.data.outgoing.length === 0, JSON.stringify(r.data));
 
     // --- protected <-> protected works ---
     r = await P1.client.post('/api/friends/request', { userId: P2.user.id });

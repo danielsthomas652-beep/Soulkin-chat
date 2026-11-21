@@ -120,6 +120,8 @@ input,textarea,select{font:inherit}
 .btn.sm{padding:8px 13px; border-radius:999px; font-size:14px; white-space:nowrap}
 .friend-state{font-weight:800; color:var(--muted); background:var(--soft); border-radius:999px; padding:7px 12px; font-size:13px; white-space:nowrap}
 .friend-state.ok{color:#0a7a52; background:#e2f6ee}
+.friend-note{font-size:12px; font-weight:700; color:#a41f30; margin-top:2px}
+.warn-note{background:#fdeef0; color:#a41f30; border:1px solid #f5c2c9; border-radius:10px; padding:10px 12px; font-size:14px; margin-top:12px}
 .friend-btns{display:inline-flex; gap:6px; flex:none}
 .profile-head{text-align:center; padding:22px 14px}
 .profile-head .nm{font-size:21px; font-weight:800; margin-top:10px}

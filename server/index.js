@@ -290,13 +290,17 @@ app.get('/api/people', async (req, res) => {
                              FROM users u ORDER BY post_count DESC, u.id ASC`).all();
   const people = [];
   for (const u of rows) {
-    const entry = { ...publicUser(u), postCount: u.post_count, relationship: 'none', friendRequestId: null };
+    const entry = { ...publicUser(u), postCount: u.post_count, relationship: 'none', friendRequestId: null, crossBand: false, knownConfirmed: false, attestBy: null };
     if (me) {
       if (u.id === me.id) entry.relationship = 'self';
       else {
+        entry.crossBand = !!me.is_protected !== !!u.is_protected;
         const f = await friendshipBetween(me.id, u.id);
         if (f) {
+          const info = pairInfo(f, me, u);
           entry.friendRequestId = f.id;
+          entry.knownConfirmed = info.knownConfirmed;
+          entry.attestBy = info.attestBy;
           if (f.status === 'accepted') entry.relationship = 'friends';
           else entry.relationship = f.requester_id === me.id ? 'pending_out' : 'pending_in';
         }
@@ -311,38 +315,89 @@ app.get('/api/people', async (req, res) => {
 // One row per pair of users (the table enforces it): status 'pending' means
 // requester_id asked addressee_id; 'accepted' means they're friends.
 // Declining or unfriending DELETES the row, so a fresh request can be sent
-// later. SAFETY RULE (owner's standing rule): a Protected (under-18) account
-// and an adult account can never friend each other — requests across that
-// line are refused. Same-band requests (both Protected, or both adult) are
-// fine.
+// later.
+// CROSS-BAND RULE (owner's rule): people who know each other in real life
+// can be friends across the adult / Protected (under-18) line; strangers
+// cannot. The Protected user always holds the key:
+//   * Protected -> adult: the request only goes out with knowsPerson: true
+//     ("I know this person in real life") in the payload; the attestation
+//     is stored on the row as known_confirmed = 1. The adult addressee can
+//     then accept normally — no attestation needed from the adult.
+//   * Adult -> Protected: the request IS created, as pending and flagged
+//     cross-band. The Protected addressee sees it in a separate
+//     "Requests from grown-ups" section and can only accept it by sending
+//     knowsPerson: true at accept time. Declining works exactly as before.
+// Same-band requests (both Protected, or both adult) need no confirmation.
+// Video calls stay stricter: adult <-> Protected calls are refused at call
+// setup even between friends (see startVideoCall).
 async function friendshipBetween(a, b) {
   return await db.prepare('SELECT * FROM friendships WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)').get(a, b, b, a);
 }
+// Describes a friendship row from `me`'s point of view for the API: whether
+// the pair is cross-band, whether the Protected user has confirmed "I know
+// this person in real life", and — for a still-pending row where that
+// confirmation is still owed — which side must give it ('me' | 'them').
+function pairInfo(f, me, other) {
+  const crossBand = !!me.is_protected !== !!other.is_protected;
+  const knownConfirmed = !!(f && f.known_confirmed);
+  let attestBy = null;
+  if (f && f.status === 'pending' && crossBand && !knownConfirmed) {
+    attestBy = !!me.is_protected ? 'me' : 'them'; // the Protected side always holds the key
+  }
+  return { crossBand, knownConfirmed, attestBy };
+}
 app.post('/api/friends/request', requireAuth, async (req, res) => {
-  const targetId = +((req.body || {}).userId);
+  const body = req.body || {};
+  const targetId = +body.userId;
   if (!Number.isInteger(targetId) || targetId <= 0) return res.status(400).json({ error: 'Missing userId.' });
   if (targetId === req.user.id) return res.status(400).json({ error: "You can't send a friend request to yourself." });
   const target = await getUserById(targetId);
   if (!target) return res.status(404).json({ error: 'That person was not found.' });
-  if (!!req.user.is_protected !== !!target.is_protected) {
-    return res.status(403).json({ error: "For safety, friend requests between Protected (under-18) accounts and adult accounts aren't allowed." });
-  }
   const existing = await friendshipBetween(req.user.id, targetId);
   if (existing) {
     if (existing.status === 'accepted') return res.status(409).json({ error: "You're already friends with " + target.display_name + '.' });
     if (existing.requester_id === req.user.id) return res.status(409).json({ error: 'Friend request already sent — waiting for them to answer.' });
     return res.status(409).json({ error: target.display_name + ' already sent you a request — accept it from your Friends page.' });
   }
-  const info = await db.prepare("INSERT INTO friendships (requester_id, addressee_id, status) VALUES (?, ?, 'pending')").run(req.user.id, targetId);
-  res.json({ ok: true, requestId: info.lastInsertRowid, relationship: 'pending_out' });
+  const crossBand = !!req.user.is_protected !== !!target.is_protected;
+  let knownConfirmed = 0;
+  if (crossBand && !!req.user.is_protected) {
+    // A Protected user asking to friend a grown-up must first confirm they
+    // know them in real life. Without that, the request never goes out.
+    if (body.knowsPerson !== true) {
+      return res.status(400).json({ error: 'To friend a grown-up, first tap "I know this person in real life." If you don\'t know them in real life, don\'t send this request.' });
+    }
+    knownConfirmed = 1;
+  }
+  // An adult asking to friend a Protected user may ASK: the request waits
+  // as pending, and the Protected user can only accept it by confirming
+  // they know the adult in real life (see /api/friends/accept).
+  const info = await db.prepare("INSERT INTO friendships (requester_id, addressee_id, status, known_confirmed) VALUES (?, ?, 'pending', ?)")
+    .run(req.user.id, targetId, knownConfirmed);
+  res.json({ ok: true, requestId: info.lastInsertRowid, relationship: 'pending_out', crossBand });
 });
 app.post('/api/friends/accept', requireAuth, async (req, res) => {
-  const rid = +((req.body || {}).requestId);
+  const body = req.body || {};
+  const rid = +body.requestId;
   const f = Number.isInteger(rid) && rid > 0 ? await db.prepare('SELECT * FROM friendships WHERE id = ?').get(rid) : null;
   if (!f) return res.status(404).json({ error: 'That request was not found.' });
   if (f.addressee_id !== req.user.id) return res.status(403).json({ error: 'Only the person who received this request can accept it.' });
   if (f.status === 'accepted') return res.status(409).json({ error: "You're already friends." });
-  await db.prepare("UPDATE friendships SET status = 'accepted' WHERE id = ?").run(rid);
+  const requester = await getUserById(f.requester_id);
+  const crossBand = !!req.user.is_protected !== !!(requester && requester.is_protected);
+  let attestNow = false;
+  if (crossBand && !!req.user.is_protected && !f.known_confirmed) {
+    // I am the Protected addressee and a grown-up sent this request: I can
+    // only accept it by confirming I know them in real life. (When the
+    // Protected user sent the request instead, they already confirmed at
+    // send time — known_confirmed is 1 — and the adult accepts normally.)
+    if (body.knowsPerson !== true) {
+      return res.status(400).json({ error: 'To accept a grown-up\'s friend request, first tap "I know this person in real life." If you don\'t know them, tap Decline instead.' });
+    }
+    attestNow = true;
+  }
+  if (attestNow) await db.prepare("UPDATE friendships SET status = 'accepted', known_confirmed = 1 WHERE id = ?").run(rid);
+  else await db.prepare("UPDATE friendships SET status = 'accepted' WHERE id = ?").run(rid);
   res.json({ ok: true, relationship: 'friends' });
 });
 app.post('/api/friends/decline', requireAuth, async (req, res) => {
@@ -368,11 +423,13 @@ app.get('/api/friends', requireAuth, async (req, res) => {
   const friends = [], incoming = [], outgoing = [];
   for (const f of rows) {
     const otherId = f.requester_id === meId ? f.addressee_id : f.requester_id;
-    const other = publicUser(await getUserById(otherId));
+    const otherRow = await getUserById(otherId);
+    const other = publicUser(otherRow);
     if (!other) continue;
-    if (f.status === 'accepted') friends.push({ ...other, online: onlineSockets.has(otherId) });
-    else if (f.addressee_id === meId) incoming.push({ ...other, requestId: f.id, createdAt: f.created_at });
-    else outgoing.push({ ...other, requestId: f.id, createdAt: f.created_at });
+    const info = pairInfo(f, req.user, otherRow);
+    if (f.status === 'accepted') friends.push({ ...other, online: onlineSockets.has(otherId), crossBand: info.crossBand, knownConfirmed: info.knownConfirmed });
+    else if (f.addressee_id === meId) incoming.push({ ...other, requestId: f.id, createdAt: f.created_at, ...info });
+    else outgoing.push({ ...other, requestId: f.id, createdAt: f.created_at, ...info });
   }
   res.json({ friends, incoming, outgoing });
 });
@@ -389,8 +446,8 @@ app.get('/api/friends', requireAuth, async (req, res) => {
 // CALL RULES — enforced here, server-side, non-negotiable:
 //   * Calls only between ACCEPTED friends (friendships table).
 //   * If exactly one side is Protected (under-18), the call is refused at
-//     setup time — even if a friendship row somehow exists (defense in
-//     depth; the friend-request rule already prevents the pairing).
+//     setup time — even between cross-band friends made under the
+//     knows-in-real-life friend rule (friendship is not enough for calls).
 //   * One call per user at a time; signaling is relayed ONLY between the
 //     two participants of a call — third parties receive nothing.
 const wss = new WebSocket.WebSocketServer({ noServer: true });

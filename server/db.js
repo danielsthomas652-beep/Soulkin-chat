@@ -160,6 +160,7 @@ CREATE TABLE IF NOT EXISTS friendships (
   requester_id INTEGER NOT NULL REFERENCES users(id),
   addressee_id INTEGER NOT NULL REFERENCES users(id),
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted')),
+  known_confirmed INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   low_id INTEGER GENERATED ALWAYS AS (MIN(requester_id, addressee_id)) STORED,
   high_id INTEGER GENERATED ALWAYS AS (MAX(requester_id, addressee_id)) STORED,
@@ -178,6 +179,14 @@ CREATE TABLE IF NOT EXISTS media_blobs (
 // seeding or serving requests. Local engines run it synchronously inside.
 async function initDb() {
   await db.exec(SCHEMA);
+  // Migration for databases created before the cross-band friend rule:
+  // friendships.known_confirmed records the Protected user's "I know this
+  // person in real life" attestation on cross-band (adult <-> Protected)
+  // rows. CREATE TABLE IF NOT EXISTS above only covers fresh databases.
+  const cols = await db.prepare("SELECT name FROM pragma_table_info('friendships')").all();
+  if (!cols.some((c) => c.name === 'known_confirmed')) {
+    await db.exec('ALTER TABLE friendships ADD COLUMN known_confirmed INTEGER NOT NULL DEFAULT 0');
+  }
 }
 
 module.exports = { db, engine, cloudMode, initDb, DB_PATH };

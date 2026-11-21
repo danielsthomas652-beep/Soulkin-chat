@@ -545,16 +545,18 @@ function renderMusicPicker() {
 function personRowHTML(p, actionHTML) {
   const posts = p.postCount != null ? ` · ${p.postCount} post${p.postCount === 1 ? '' : 's'}` : '';
   const dot = typeof p.online === 'boolean' ? `<span class="online-dot ${friendOnline(p) ? 'on' : ''}" data-dot-for="${p.id}" title="${friendOnline(p) ? 'Online now' : 'Offline'}"></span>` : '';
+  // An adult receiving a request from a Protected account gets a plain note.
+  const note = (p.relationship === 'pending_in' && p.crossBand && p.isProtected) ? '<div class="friend-note">Protected account (under 18)</div>' : '';
   return `<div class="card person">${avatarHTML(p.displayName, p.username, 'md')}
-    <div class="grow"><div class="nm">${dot}${esc(p.displayName)}${p.isProtected ? '<span class="badge">🛡️ Protected</span>' : ''}</div><div class="sub">@${esc(p.username)}${posts}</div></div>
+    <div class="grow"><div class="nm">${dot}${esc(p.displayName)}${p.isProtected ? '<span class="badge">🛡️ Protected</span>' : ''}</div><div class="sub">@${esc(p.username)}${posts}</div>${note}</div>
     ${actionHTML || ''}</div>`;
 }
 function friendBtnHTML(p) {
   if (!me || p.id === me.id || p.relationship === 'self') return '<span class="friend-state">You</span>';
   if (p.relationship === 'friends') return '<span class="friend-state ok">Friends ✓</span>';
   if (p.relationship === 'pending_out') return '<span class="friend-state">Requested</span>';
-  if (p.relationship === 'pending_in') return `<span class="friend-btns"><button class="btn sm" data-friend="accept" data-req="${p.friendRequestId}" type="button">Accept</button><button class="btn ghost sm" data-friend="decline" data-req="${p.friendRequestId}" type="button">Decline</button></span>`;
-  return `<button class="btn red sm" data-friend="add" data-id="${p.id}" type="button">Add Friend</button>`;
+  if (p.relationship === 'pending_in') return `<span class="friend-btns"><button class="btn sm" data-friend="accept" data-req="${p.friendRequestId}"${p.attestBy === 'me' ? ' data-attest="1"' : ''} type="button">Accept</button><button class="btn ghost sm" data-friend="decline" data-req="${p.friendRequestId}" type="button">Decline</button></span>`;
+  return `<button class="btn red sm" data-friend="add" data-id="${p.id}" data-protected="${p.isProtected ? '1' : '0'}" type="button">Add Friend</button>`;
 }
 async function loadPeople() {
   try {
@@ -562,12 +564,21 @@ async function loadPeople() {
     $('#peopleList').innerHTML = data.people.map((p) => personRowHTML(p, friendBtnHTML(p))).join('') || '<div class="card empty">No people yet.</div>';
   } catch (e) { toast(e.message); }
 }
+function acceptDeclineBtns(p) {
+  return `<span class="friend-btns"><button class="btn sm" data-friend="accept" data-req="${p.requestId}"${p.attestBy === 'me' ? ' data-attest="1"' : ''} type="button">Accept</button><button class="btn ghost sm" data-friend="decline" data-req="${p.requestId}" type="button">Decline</button></span>`;
+}
 async function loadFriends() {
   try {
     const data = await api('/api/friends');
-    $('#friendRequests').innerHTML = data.incoming.length
-      ? data.incoming.map((p) => personRowHTML(p, `<span class="friend-btns"><button class="btn sm" data-friend="accept" data-req="${p.requestId}" type="button">Accept</button><button class="btn ghost sm" data-friend="decline" data-req="${p.requestId}" type="button">Decline</button></span>`)).join('')
+    // Requests from grown-ups (I'm Protected, they're not) get their own
+    // clearly separated section with a warning — see index.html.
+    const grownups = data.incoming.filter((p) => p.crossBand && !p.isProtected);
+    const regular = data.incoming.filter((p) => !(p.crossBand && !p.isProtected));
+    $('#friendRequests').innerHTML = regular.length
+      ? regular.map((p) => personRowHTML({ ...p, relationship: 'pending_in' }, acceptDeclineBtns(p))).join('')
       : '<div class="card empty">No new requests right now.</div>';
+    $('#grownupRequests').classList.toggle('hidden', grownups.length === 0);
+    $('#friendRequestsGrownups').innerHTML = grownups.map((p) => personRowHTML(p, acceptDeclineBtns(p))).join('');
     $('#friendList').innerHTML = data.friends.length
       ? data.friends.map((p) => personRowHTML(p, `<span class="friend-btns"><button class="btn sm" data-call="${p.id}" data-callname="${esc(p.displayName)}" type="button">📹 Video call</button><button class="btn ghost sm" data-friend="remove" data-id="${p.id}" type="button">Unfriend</button></span>`)).join('')
       : '<div class="card empty">No friends yet — add some from the People page! 🙂</div>';
@@ -576,6 +587,28 @@ async function loadFriends() {
       : '<div class="card empty">None waiting.</div>';
   } catch (e) { toast(e.message); }
 }
+/* "I know this person in real life" confirm dialog (the Protected user's
+ * key for cross-band friend requests). Resolves true only if the checkbox
+ * is ticked and the confirm button is tapped. */
+let kcResolve = null;
+function confirmKnows(text, yesLabel) {
+  return new Promise((resolve) => {
+    kcResolve = resolve;
+    $('#kcText').textContent = text;
+    $('#kcYes').textContent = yesLabel;
+    $('#kcCheck').checked = false;
+    $('#kcYes').disabled = true;
+    $('#knowConfirm').classList.remove('hidden');
+  });
+}
+function closeKnowConfirm(v) {
+  $('#knowConfirm').classList.add('hidden');
+  if (kcResolve) { const r = kcResolve; kcResolve = null; r(v); }
+}
+$('#kcCheck').addEventListener('change', () => { $('#kcYes').disabled = !$('#kcCheck').checked; });
+$('#kcYes').addEventListener('click', () => closeKnowConfirm(true));
+$('#kcNo').addEventListener('click', () => closeKnowConfirm(false));
+
 /* friend actions (event delegation) */
 document.addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-friend]');
@@ -583,8 +616,29 @@ document.addEventListener('click', async (e) => {
   const act = btn.dataset.friend;
   btn.disabled = true;
   try {
-    if (act === 'add') { await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ userId: +btn.dataset.id }) }); toast('Friend request sent! 📨'); }
-    else if (act === 'accept') { await api('/api/friends/accept', { method: 'POST', body: JSON.stringify({ requestId: +btn.dataset.req }) }); toast('You are friends now! 🎉'); }
+    if (act === 'add') {
+      // I'm Protected and they're a grown-up: I hold the key — confirm
+      // "I know this person in real life" before the request goes out.
+      if (me && me.isProtected && btn.dataset.protected === '0') {
+        const okd = await confirmKnows('You\'re sending a friend request to a grown-up. That\'s only for people you know in real life — like family or a family friend.', 'Send request');
+        if (!okd) { btn.disabled = false; return; }
+        await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ userId: +btn.dataset.id, knowsPerson: true }) });
+      } else {
+        await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ userId: +btn.dataset.id }) });
+      }
+      toast('Friend request sent! 📨');
+    }
+    else if (act === 'accept') {
+      // A grown-up asked me (Protected): accepting needs the same confirm.
+      if (btn.dataset.attest === '1') {
+        const okd = await confirmKnows('This request is from a grown-up. Only accept people you know in real life. If you don\'t know them, tap Cancel and then Decline.', 'Accept');
+        if (!okd) { btn.disabled = false; return; }
+        await api('/api/friends/accept', { method: 'POST', body: JSON.stringify({ requestId: +btn.dataset.req, knowsPerson: true }) });
+      } else {
+        await api('/api/friends/accept', { method: 'POST', body: JSON.stringify({ requestId: +btn.dataset.req }) });
+      }
+      toast('You are friends now! 🎉');
+    }
     else if (act === 'decline') { await api('/api/friends/decline', { method: 'POST', body: JSON.stringify({ requestId: +btn.dataset.req }) }); toast('Request declined.'); }
     else if (act === 'remove') { await api('/api/friends/remove', { method: 'POST', body: JSON.stringify({ userId: +btn.dataset.id }) }); toast('Unfriended.'); }
     if (!$('#view-people').classList.contains('hidden')) loadPeople();
