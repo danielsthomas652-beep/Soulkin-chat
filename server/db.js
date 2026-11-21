@@ -109,6 +109,10 @@ CREATE TABLE IF NOT EXISTS users (
   pass_hash TEXT NOT NULL,
   is_protected INTEGER NOT NULL DEFAULT 0,
   phone TEXT,
+  share_location INTEGER NOT NULL DEFAULT 0,
+  lat REAL,
+  lng REAL,
+  location_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS posts (
@@ -233,6 +237,24 @@ async function initDb() {
   const userCols = await db.prepare("SELECT name FROM pragma_table_info('users')").all();
   if (!userCols.some((c) => c.name === 'phone')) {
     await db.exec('ALTER TABLE users ADD COLUMN phone TEXT');
+  }
+  // Migration for databases created before the Friend Map: location
+  // sharing is opt-in (share_location, default 0 = off) and lat/lng/
+  // location_at hold the owner's last shared fix. They are only ever
+  // written by POST /api/location while sharing is on (never for
+  // Protected accounts — see server/index.js) and only ever read back
+  // through the visibleLocation gate.
+  if (!userCols.some((c) => c.name === 'share_location')) {
+    await db.exec('ALTER TABLE users ADD COLUMN share_location INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!userCols.some((c) => c.name === 'lat')) {
+    await db.exec('ALTER TABLE users ADD COLUMN lat REAL');
+  }
+  if (!userCols.some((c) => c.name === 'lng')) {
+    await db.exec('ALTER TABLE users ADD COLUMN lng REAL');
+  }
+  if (!userCols.some((c) => c.name === 'location_at')) {
+    await db.exec('ALTER TABLE users ADD COLUMN location_at TEXT');
   }
 }
 

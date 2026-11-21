@@ -81,7 +81,7 @@ function publicUser(u) {
 // the one place a user sees their OWN number, via ownUser().
 function ownUser(u) {
   if (!u) return null;
-  return { ...publicUser(u), phone: u.phone || null };
+  return { ...publicUser(u), phone: u.phone || null, shareLocation: !!u.share_location };
 }
 // Normalizes a phone number the user typed on their profile: spaces,
 // dashes and parentheses are decoration and are stripped; one leading
@@ -113,6 +113,28 @@ function visiblePhone(me, other, f) {
   const crossBand = !!me.is_protected !== !!other.is_protected;
   if (crossBand && !f.known_confirmed) return null;
   return other.phone;
+}
+// THE location-sharing rule, server-enforced — the visiblePhone pattern
+// applied to the Friend Map. `me` may see `other`'s location only when
+// ALL of these hold:
+//   * other opted in (share_location = 1) AND has a stored fix, AND
+//   * other is NOT Protected — a Protected (under-18) user's location
+//     is NEVER served to anyone. (Defense in depth: POST /api/location
+//     also refuses Protected accounts outright, so no Protected
+//     coordinates are ever even stored.), AND
+//   * the two are ACCEPTED friends (f is their friendships row), AND
+//   * cross-band (adult <-> Protected) pairs additionally need the
+//     Protected user's "I know this person in real life" confirmation
+//     (f.known_confirmed) — the same gate as messaging and phone.
+// Returns { lat, lng, updatedAt } to pin on the map, or null.
+function visibleLocation(me, other, f) {
+  if (!me || !other) return null;
+  if (other.is_protected) return null;
+  if (!other.share_location || other.lat == null || other.lng == null) return null;
+  if (!f || f.status !== 'accepted') return null;
+  const crossBand = !!me.is_protected !== !!other.is_protected;
+  if (crossBand && !f.known_confirmed) return null;
+  return { lat: other.lat, lng: other.lng, updatedAt: other.location_at || null };
 }
 async function getUserById(id) { return await db.prepare('SELECT * FROM users WHERE id = ?').get(id); }
 async function authUser(req) {
@@ -225,14 +247,18 @@ app.get('/api/me', async (req, res) => {
   };
   res.json({ user: ownUser(u), stats });
 });
-// Profile updates: displayName and/or phone, either one on its own.
-// phone: '' clears it; anything else must survive normalizePhone. The
-// stored number is only ever shared under the visiblePhone rule.
+// Profile updates: displayName, phone and/or shareLocation, any one on
+// its own. phone: '' clears it; anything else must survive
+// normalizePhone. The stored number is only ever shared under the
+// visiblePhone rule. shareLocation must be a real boolean; turning it
+// OFF also wipes the stored fix (lat/lng/location_at) in the same
+// update, so a friend map can never resurrect a stale position.
 app.patch('/api/me', requireAuth, async (req, res) => {
   const body = req.body || {};
   const hasName = Object.prototype.hasOwnProperty.call(body, 'displayName');
   const hasPhone = Object.prototype.hasOwnProperty.call(body, 'phone');
-  if (!hasName && !hasPhone) return res.status(400).json({ error: 'Nothing to update.' });
+  const hasShare = Object.prototype.hasOwnProperty.call(body, 'shareLocation');
+  if (!hasName && !hasPhone && !hasShare) return res.status(400).json({ error: 'Nothing to update.' });
   if (hasName) {
     const name = String(body.displayName || '').trim().slice(0, 40);
     if (name.length < 2) return res.status(400).json({ error: 'Name is too short.' });
@@ -242,6 +268,14 @@ app.patch('/api/me', requireAuth, async (req, res) => {
     const norm = normalizePhone(body.phone);
     if (norm.error) return res.status(400).json({ error: norm.error });
     await db.prepare('UPDATE users SET phone = ? WHERE id = ?').run(norm.phone, req.user.id);
+  }
+  if (hasShare) {
+    if (typeof body.shareLocation !== 'boolean') return res.status(400).json({ error: 'Location sharing is either on or off — please use the toggle.' });
+    if (body.shareLocation) {
+      await db.prepare('UPDATE users SET share_location = 1 WHERE id = ?').run(req.user.id);
+    } else {
+      await db.prepare('UPDATE users SET share_location = 0, lat = NULL, lng = NULL, location_at = NULL WHERE id = ?').run(req.user.id);
+    }
   }
   res.json({ user: ownUser(await getUserById(req.user.id)) });
 });
@@ -487,6 +521,49 @@ app.get('/api/friends', requireAuth, async (req, res) => {
   res.json({ friends, incoming, outgoing });
 });
 
+// ----- friend map (opt-in location sharing between friends) -----
+// RULES — enforced here, server-side (see visibleLocation):
+//   * Sharing is opt-in and OFF by default (PATCH /api/me
+//     {shareLocation}); turning it off wipes the stored fix.
+//   * POST /api/location stores a fix ONLY while the caller's sharing
+//     is on — and NEVER for a Protected account: kids can't share
+//     location here, so no Protected coordinates are ever stored.
+//   * GET /api/map returns only accepted friends who are sharing and
+//     have a fix, each passed through visibleLocation (Protected
+//     locations never served; cross-band needs known_confirmed).
+app.post('/api/location', requireAuth, async (req, res) => {
+  const me = req.user;
+  if (me.is_protected) {
+    return res.status(403).json({ error: "For safety, Protected accounts can't share their location here — your location is never on the map." });
+  }
+  if (!me.share_location) {
+    return res.status(403).json({ error: 'Your location sharing is off. Turn on "Share my location with friends" in your Profile first.' });
+  }
+  const body = req.body || {};
+  // Number(null) is 0 and Number(true) is 1 — neither is a coordinate,
+  // so only genuine numbers / numeric strings get converted.
+  const asCoord = (v) => (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '') ? Number(v) : NaN);
+  const lat = asCoord(body.lat);
+  const lng = asCoord(body.lng);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+    return res.status(400).json({ error: "That location doesn't look right — the numbers are off the map." });
+  }
+  await db.prepare("UPDATE users SET lat = ?, lng = ?, location_at = datetime('now') WHERE id = ?").run(lat, lng, me.id);
+  res.json({ ok: true });
+});
+app.get('/api/map', requireAuth, async (req, res) => {
+  const me = req.user;
+  const friendIds = await acceptedFriendIds(me.id);
+  const friends = [];
+  for (const fid of friendIds) {
+    const other = await getUserById(fid);
+    if (!other) continue;
+    const loc = visibleLocation(me, other, await friendshipBetween(me.id, fid));
+    if (loc) friends.push({ user: publicUser(other), lat: loc.lat, lng: loc.lng, updatedAt: loc.updatedAt });
+  }
+  res.json({ friends });
+});
+
 // ----- messages (private 1:1 DMs between friends) -----
 // RULES — enforced here, server-side:
 //   * Messages only between ACCEPTED friends. Non-friends get a 403.
@@ -587,7 +664,7 @@ app.post('/api/messages/:userId', requireAuth, upload.single('media'), async (re
     }
     mediaType = 'image';
   }
-  if (isSnap && !mediaUrl) return res.status(400).json({ error: 'A snap needs a picture — take one with the camera first.' });
+  if (isSnap && !mediaUrl) return res.status(400).json({ error: 'A Pick Snap needs a picture — take one with the camera first.' });
   if (!text && !mediaUrl) return res.status(400).json({ error: 'Write a message or add a picture first.' });
   const info = await db.prepare('INSERT INTO messages (sender_id, recipient_id, text, media_url, media_type, is_snap) VALUES (?, ?, ?, ?, ?, ?)')
     .run(req.user.id, gate.other.id, text, mediaUrl, mediaType, isSnap ? 1 : 0);
@@ -612,11 +689,11 @@ const MIME_BY_EXT = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'imag
 app.post('/api/messages/:messageId/open', requireAuth, async (req, res) => {
   const mid = +req.params.messageId;
   const m = Number.isInteger(mid) && mid > 0 ? await db.prepare('SELECT * FROM messages WHERE id = ?').get(mid) : null;
-  if (!m || !m.is_snap) return res.status(404).json({ error: 'That snap was not found.' });
-  if (m.sender_id === req.user.id) return res.status(403).json({ error: 'You sent this snap — only the friend you sent it to can open it.' });
-  if (m.recipient_id !== req.user.id) return res.status(403).json({ error: 'That snap was not sent to you.' });
-  if (m.opened_at) return res.status(410).json({ error: 'That snap was already opened — it\'s gone now.' });
-  if (!m.media_url) return res.status(410).json({ error: 'That snap is gone.' });
+  if (!m || !m.is_snap) return res.status(404).json({ error: 'That Pick Snap was not found.' });
+  if (m.sender_id === req.user.id) return res.status(403).json({ error: 'You sent this Pick Snap — only the friend you sent it to can open it.' });
+  if (m.recipient_id !== req.user.id) return res.status(403).json({ error: 'That Pick Snap was not sent to you.' });
+  if (m.opened_at) return res.status(410).json({ error: 'That Pick Snap was already opened — it\'s gone now.' });
+  if (!m.media_url) return res.status(410).json({ error: 'That Pick Snap is gone.' });
   // Fetch the bytes BEFORE destroying the stored copy.
   let bytes = null, mime = 'application/octet-stream';
   if (m.media_url.startsWith('/media/')) {
@@ -627,7 +704,7 @@ app.post('/api/messages/:messageId/open', requireAuth, async (req, res) => {
     try { bytes = fs.readFileSync(filePath); } catch (e) { bytes = null; }
     mime = MIME_BY_EXT[path.extname(filePath).toLowerCase()] || mime;
   }
-  if (!bytes) return res.status(410).json({ error: 'That snap is gone.' });
+  if (!bytes) return res.status(410).json({ error: 'That Pick Snap is gone.' });
   // The reveal and the destruction happen together: mark it opened,
   // drop the stored picture, null the URL — then stream the bytes.
   await db.prepare("UPDATE messages SET opened_at = datetime('now'), media_url = NULL WHERE id = ?").run(m.id);

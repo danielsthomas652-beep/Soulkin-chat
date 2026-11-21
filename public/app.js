@@ -78,13 +78,14 @@ $('#authForm').addEventListener('submit', async (e) => {
 let currentView = 'feed';
 function showView(name) {
   currentView = name;
-  ['feed', 'videos', 'people', 'friends', 'chat', 'profile'].forEach((v) => $('#view-' + v).classList.toggle('hidden', v !== name));
+  ['feed', 'videos', 'people', 'friends', 'chat', 'map', 'profile'].forEach((v) => $('#view-' + v).classList.toggle('hidden', v !== name));
   $$('.bottomnav button').forEach((b) => b.classList.toggle('on', b.dataset.nav === name));
   if (name === 'videos') { ensureVideos(); resumeCurrentSlide(); }
   else pauseAllSlides();
   if (name === 'people') loadPeople();
   if (name === 'friends') loadFriends();
   if (name === 'chat') loadConversations();
+  if (name === 'map') loadMap();
   if (name === 'profile') loadProfile();
   window.scrollTo(0, 0);
 }
@@ -92,13 +93,14 @@ $$('.bottomnav button').forEach((b) => b.addEventListener('click', () => showVie
 
 /* ================= swipe between pages =================
  * A clear left/right swipe moves between the main tabs in bottom-nav
- * order (Feed → Videos → People → Friends → Chat → Profile). The Videos view
+ * order (Feed → Videos → People → Friends → Chat → Map → Profile). The Videos view
  * itself is skipped — its pager owns horizontal swiping there — and a
  * swipe that starts in a form field, the top/bottom bars, an open
- * overlay, or a horizontally scrolling strip never changes the page.
+ * overlay, a horizontally scrolling strip, or the friend map (Leaflet
+ * owns panning there) never changes the page.
  * The gesture must travel ~60px and be mostly horizontal, so ordinary
  * vertical scrolling never triggers it. */
-const TAB_ORDER = ['feed', 'videos', 'people', 'friends', 'chat', 'profile'];
+const TAB_ORDER = ['feed', 'videos', 'people', 'friends', 'chat', 'map', 'profile'];
 function anyOverlayOpen() {
   return ['#viewer', '#callView', '#postEditor', '#cameraView', '#threadView', '#snapView', '#sheet', '#callPopup', '#knowConfirm'].some((s) => !$(s).classList.contains('hidden'));
 }
@@ -120,7 +122,7 @@ document.addEventListener('touchend', (e) => {
   const start = swipeStart; swipeStart = null;
   if (currentView === 'videos' || anyOverlayOpen()) return;
   const t = start.target;
-  if (t && t.closest && (t.closest('input, textarea, select') || t.closest('.bottomnav') || t.closest('.topbar') || insideHScroller(t))) return;
+  if (t && t.closest && (t.closest('input, textarea, select') || t.closest('.bottomnav') || t.closest('.topbar') || t.closest('#mapEl') || insideHScroller(t))) return;
   const dx = e.changedTouches[0].clientX - start.x;
   const dy = e.changedTouches[0].clientY - start.y;
   if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
@@ -140,6 +142,7 @@ function enterApp() {
   showView('feed');
   connectWS();
   refreshUnreadBadge();
+  startLocationUpdates();
 }
 
 /* ================= feed ================= */
@@ -829,8 +832,8 @@ document.addEventListener('click', async (e) => {
 
 /* ================= messages (private 1:1 chat between friends) =================
  * The Chat tab lists one row per friend: last message preview (a photo
- * with no caption previews as "📷 Photo"; a snap previews as "📸 Snap"
- * or "📸 Snap opened") + unread count. Tapping a row (or the Message
+ * with no caption previews as "📷 Photo"; a snap previews as "📸 Pick Snap"
+ * or "📸 Pick Snap opened") + unread count. Tapping a row (or the Message
  * button in the Friends list) opens the thread full-screen; opening it
  * marks their messages to me as read (the server does that in
  * GET /api/messages/:userId). A thread carries text, photo messages —
@@ -855,7 +858,7 @@ async function refreshUnreadBadge() {
 function convoRowHTML(c) {
   const u = c.user;
   const last = c.lastMessage;
-  const preview = last ? (last.mine ? 'You: ' : '') + (last.isSnap ? (last.snapOpened ? '📸 Snap opened' : '📸 Snap') : (last.text || (last.mediaUrl ? '📷 Photo' : ''))) : 'Say hi! 👋';
+  const preview = last ? (last.mine ? 'You: ' : '') + (last.isSnap ? (last.snapOpened ? '📸 Pick Snap opened' : '📸 Pick Snap') : (last.text || (last.mediaUrl ? '📷 Photo' : ''))) : 'Say hi! 👋';
   const when = last ? timeAgo(last.createdAt) : '';
   const pill = c.unread ? `<span class="unread-pill">${c.unread > 99 ? '99+' : c.unread}</span>` : '';
   return `<div class="card person convo" data-convo="${u.id}" data-msgname="${esc(u.displayName)}" data-msguser="${esc(u.username)}">${avatarHTML(u.displayName, u.username, 'md')}
@@ -878,9 +881,9 @@ function bubbleHTML(m) {
     // sends its URL). Mine shows sent/opened; theirs is a tap-to-view
     // chip until the one open spends it, then a tombstone.
     let chip;
-    if (m.mine) chip = `<div class="snap-chip ${m.snapOpened ? 'opened' : ''}">📸 Snap — ${m.snapOpened ? 'opened' : 'sent'}</div>`;
-    else if (m.snapOpened) chip = '<div class="snap-chip opened">📸 Snap — opened</div>';
-    else chip = `<button class="snap-chip tap" type="button" data-snap-open="${m.id}">📸 Snap — tap to view</button>`;
+    if (m.mine) chip = `<div class="snap-chip ${m.snapOpened ? 'opened' : ''}">📸 Pick Snap — ${m.snapOpened ? 'opened' : 'sent'}</div>`;
+    else if (m.snapOpened) chip = '<div class="snap-chip opened">📸 Pick Snap — opened</div>';
+    else chip = `<button class="snap-chip tap" type="button" data-snap-open="${m.id}">📸 Pick Snap — tap to view</button>`;
     return `<div class="bubble-row ${m.mine ? 'mine' : 'theirs'}" data-msg-row="${m.id}">${chip}${text}<div class="btime">${timeAgo(m.createdAt)}</div></div>`;
   }
   const photo = m.mediaUrl ? `<a class="bubble-photo" href="${esc(m.mediaUrl)}" target="_blank" rel="noopener"><img src="${esc(m.mediaUrl)}" alt="Photo" loading="lazy"></a>` : '';
@@ -949,7 +952,7 @@ function openThreadAttach() {
   $('#sheetBody').innerHTML = '<div class="attach-choices">' +
     '<button class="btn block" id="attPhoto" type="button">📷 Photo — pick from your pictures</button>' +
     '<button class="btn block" id="attCamera" type="button">📸 Camera — take a new picture</button>' +
-    '<button class="btn block" id="attSnap" type="button">📸 Snap — disappears after they see it</button></div>';
+    '<button class="btn block" id="attSnap" type="button">📸 Pick Snap — disappears after they see it</button></div>';
   $('#attPhoto').addEventListener('click', () => { closeSheet(); $('#threadPhotoFile').click(); });
   $('#attCamera').addEventListener('click', () => { closeSheet(); openCamera('thread'); });
   $('#attSnap').addEventListener('click', () => { closeSheet(); openCamera('snap'); });
@@ -965,13 +968,13 @@ async function sendThreadSnap(file) {
   try {
     const res = await fetch('/api/messages/' + peerId, { method: 'POST', body: fd });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'That snap could not be sent.');
+    if (!res.ok) throw new Error(data.error || 'That Pick Snap could not be sent.');
     if (!chatPeer || chatPeer.id !== peerId) return; // thread closed or switched while sending
     const empty = $('#threadBody .empty'); if (empty) empty.remove();
     $('#threadBody').insertAdjacentHTML('beforeend', bubbleHTML(data.message));
     $('#threadText').value = '';
     scrollThread();
-    toast('Snap sent 📸 — it disappears when they open it');
+    toast('Pick Snap sent 📸 — it disappears when they open it');
   } catch (ex) { toast(ex.message); }
 }
 /* ---- opening a snap (recipient, exactly once) ----
@@ -1000,19 +1003,19 @@ async function openSnap(id, chip) {
   try {
     const res = await fetch('/api/messages/' + id + '/open', { method: 'POST' });
     if (!res.ok) {
-      let msg = 'That snap is gone.';
+      let msg = 'That Pick Snap is gone.';
       try { const d = await res.json(); if (d.error) msg = d.error; } catch (e) { /* keep default */ }
       toast(msg);
       // It's spent either way — settle the chip into its tombstone.
-      if (chip) { const tomb = document.createElement('div'); tomb.className = 'snap-chip opened'; tomb.textContent = '📸 Snap — opened'; chip.replaceWith(tomb); }
+      if (chip) { const tomb = document.createElement('div'); tomb.className = 'snap-chip opened'; tomb.textContent = '📸 Pick Snap — opened'; chip.replaceWith(tomb); }
       return;
     }
     const blob = await res.blob();
-    if (chip) { const tomb = document.createElement('div'); tomb.className = 'snap-chip opened'; tomb.textContent = '📸 Snap — opened'; chip.replaceWith(tomb); }
+    if (chip) { const tomb = document.createElement('div'); tomb.className = 'snap-chip opened'; tomb.textContent = '📸 Pick Snap — opened'; chip.replaceWith(tomb); }
     showSnapViewer(URL.createObjectURL(blob));
     if (currentView === 'chat') loadConversations();
   } catch (ex) {
-    toast('That snap could not be opened.');
+    toast('That Pick Snap could not be opened.');
     if (chip) chip.disabled = false;
   }
 }
@@ -1025,7 +1028,7 @@ document.addEventListener('click', (e) => {
 function onSnapOpened(m) {
   if (chatPeer && chatPeer.id === m.userId) {
     const chip = document.querySelector('[data-msg-row="' + m.messageId + '"] .snap-chip');
-    if (chip) { chip.textContent = '📸 Snap — opened'; chip.classList.add('opened'); }
+    if (chip) { chip.textContent = '📸 Pick Snap — opened'; chip.classList.add('opened'); }
   }
   if (currentView === 'chat') loadConversations();
 }
@@ -1067,7 +1070,7 @@ function onIncomingDm(m) {
     scrollThread();
     api('/api/messages/' + msg.senderId).then(() => refreshUnreadBadge()).catch(() => {});
   } else if (msg.from) {
-    const shown = msg.isSnap ? '📸 Snap' : (msg.text || (msg.mediaUrl ? '📷 Photo' : ''));
+    const shown = msg.isSnap ? '📸 Pick Snap' : (msg.text || (msg.mediaUrl ? '📷 Photo' : ''));
     toast('💬 ' + msg.from.displayName + ': ' + (shown.length > 60 ? shown.slice(0, 60) + '…' : shown));
   }
   if (currentView === 'chat') loadConversations();
@@ -1268,6 +1271,123 @@ document.addEventListener('click', (e) => {
   startVideoCall(+btn.dataset.call, btn.dataset.callname || 'Friend');
 });
 
+/* ================= friend map =================
+ * Opt-in location sharing between friends. The Profile toggle (and
+ * its shortcut twin on the Map page) flips users.share_location via
+ * PATCH /api/me; while sharing is on, the app posts a fix to
+ * POST /api/location on load, when the Map tab opens, and every ~60s.
+ * The Map tab renders GET /api/map — only friends the server cleared
+ * through visibleLocation — as Leaflet pins on OpenStreetMap tiles.
+ * Protected accounts never share and never appear (the server refuses
+ * their fixes and never serves their location). Geolocation trouble
+ * toasts once, never in a loop. If the Leaflet CDN failed to load, the
+ * Map page shows a plain fallback instead of a blank box. */
+let leafletMap = null;
+let mapMarkers = [];
+let locTimer = null;
+let locWarned = false; // a failed fix warns once, not every minute
+const HOME_SPOT = [42.8875, -77.2817]; // Canandaigua, NY — the default center
+
+function mySharingOn() { return !!(me && me.shareLocation); }
+function updatedLabel(iso) {
+  if (!iso) return 'a while ago';
+  const t = new Date(String(iso).replace(' ', 'T') + (String(iso).includes('Z') ? '' : 'Z')).getTime();
+  const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + ' min ago';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs === 1 ? '1 hr ago' : hrs + ' hrs ago';
+  const days = Math.floor(hrs / 24);
+  return days === 1 ? '1 day ago' : days + ' days ago';
+}
+function renderSharingUI() {
+  if (!me) return;
+  const on = mySharingOn();
+  const prot = !!me.isProtected;
+  const pBtn = $('#btnShareLoc');
+  if (pBtn) { pBtn.classList.toggle('hidden', prot); pBtn.textContent = on ? 'Turn off' : 'Turn on'; pBtn.classList.toggle('ghost', on); }
+  const pState = $('#locState');
+  if (pState) pState.textContent = prot ? '🛡️ Protected accounts never share location.' : (on ? 'On — friends can see where you are on the map.' : "Off — friends can't see where you are.");
+  const pHint = $('#locHint');
+  if (pHint) pHint.textContent = prot
+    ? 'Your location is never shown to anyone on the map — that is a safety rule, not a setting.'
+    : (on ? 'While this is on, the app updates your spot whenever it is open. Turn it off any time — your saved spot is wiped right away.'
+          : 'Turn it on and your friends can find you on the Friend Map. Only friends can see it, and only while you keep it on.');
+  const mBtn = $('#mapToggleShare');
+  if (mBtn) { mBtn.classList.toggle('hidden', prot); mBtn.textContent = on ? 'Turn off' : 'Turn on'; mBtn.classList.toggle('ghost', on); }
+  const mState = $('#mapMyState');
+  if (mState) mState.textContent = prot ? '🛡️ Your location is never shared' : (on ? 'You are sharing your location' : 'Location sharing is off');
+  const mHint = $('#mapMyHint');
+  if (mHint) mHint.textContent = prot ? "Protected accounts can't share location here." : (on ? 'Friends can see you on this map.' : "Turn it on to appear on your friends' maps.");
+}
+async function setSharing(on) {
+  try {
+    const r = await api('/api/me', { method: 'PATCH', body: JSON.stringify({ shareLocation: on }) });
+    me = r.user;
+    renderSharingUI();
+    if (on) { updateMyLocation(); toast('Location sharing on 📍 — friends can see you on the map'); }
+    else toast('Location sharing off — your spot was wiped from the map');
+    if (currentView === 'map') loadMap();
+  } catch (e) { toast(e.message); }
+}
+function warnLocOnce() {
+  if (locWarned) return;
+  locWarned = true;
+  toast("Couldn't get your location — if you want to share it, check that location is allowed for this site. 📍");
+}
+function updateMyLocation() {
+  if (!mySharingOn()) return;
+  if (!navigator.geolocation) { warnLocOnce(); return; }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => { api('/api/location', { method: 'POST', body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }) }).catch(() => {}); },
+    () => warnLocOnce(),
+    { maximumAge: 30000, timeout: 10000 }
+  );
+}
+function startLocationUpdates() {
+  // The login response carries the public profile; /api/me is the one
+  // that knows my sharing switch — refresh it, then send a first fix.
+  api('/api/me').then((d) => { me = d.user; renderSharingUI(); updateMyLocation(); }).catch(() => {});
+  if (!locTimer) locTimer = setInterval(updateMyLocation, 60000);
+}
+async function loadMap() {
+  try { const d = await api('/api/me'); me = d.user; } catch (e) { /* keep what we have */ }
+  renderSharingUI();
+  updateMyLocation(); // opening the Map tab is one of the update moments
+  let pins = [];
+  try { pins = (await api('/api/map')).friends || []; } catch (e) { toast(e.message); }
+  $('#mapEmpty').classList.toggle('hidden', pins.length > 0);
+  if (typeof L === 'undefined') { // Leaflet CDN failed — a plain note, never a blank page
+    $('#mapEl').classList.add('hidden');
+    $('#mapNoLib').classList.remove('hidden');
+    return;
+  }
+  $('#mapNoLib').classList.add('hidden');
+  $('#mapEl').classList.remove('hidden');
+  if (!leafletMap) {
+    leafletMap = L.map('mapEl').setView(HOME_SPOT, 12);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }).addTo(leafletMap);
+  }
+  mapMarkers.forEach((m) => m.remove());
+  mapMarkers = pins.map((f) => L.marker([f.lat, f.lng]).addTo(leafletMap)
+    .bindPopup('<b>' + esc(f.user.displayName) + '</b><br>Updated ' + updatedLabel(f.updatedAt)));
+  if (pins.length) {
+    leafletMap.fitBounds(L.latLngBounds(pins.map((f) => [f.lat, f.lng])), { padding: [30, 30], maxZoom: 13 });
+  } else if (navigator.geolocation) {
+    // Nobody to show: center on my own spot if the browser offers it,
+    // otherwise stay on Canandaigua.
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { if (leafletMap && currentView === 'map') leafletMap.setView([pos.coords.latitude, pos.coords.longitude], 12); },
+      () => { if (leafletMap) leafletMap.setView(HOME_SPOT, 12); },
+      { maximumAge: 60000, timeout: 8000 }
+    );
+  }
+  // The view was hidden a moment ago — Leaflet must re-measure its box.
+  setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 60);
+}
+$('#btnShareLoc').addEventListener('click', () => setSharing(!mySharingOn()));
+$('#mapToggleShare').addEventListener('click', () => setSharing(!mySharingOn()));
+
 /* ================= profile ================= */
 async function loadProfile() {
   try {
@@ -1284,6 +1404,7 @@ async function loadProfile() {
     $('#phoneHint').textContent = me.isProtected
       ? '🛡️ Your number stays private — it is never shown to anyone, not even friends.'
       : 'Add your number and your friends get a 📞 Call button that rings your real phone. Only friends can see it — clear the box and Save to turn it off.';
+    renderSharingUI();
     const mine = await api('/api/my/posts');
     const box = $('#myPosts');
     box.innerHTML = mine.posts.length ? mine.posts.map(postCardHTML).join('') : '<div class="card empty">You have not posted yet — say hi! 👋</div>';

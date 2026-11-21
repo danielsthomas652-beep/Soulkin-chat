@@ -258,3 +258,14 @@ a.btn{text-decoration:none}
 .thread-attach:active{background:var(--border)}
 .attach-choices{display:flex; flex-direction:column; gap:10px}
 .attach-choices .btn{width:100%}
+
+/* ---------- friend map ---------- */
+.map-status{display:flex; align-items:center; gap:12px}
+.map-status .grow{flex:1; min-width:0}
+.map-status .grow b{display:block; color:var(--navy)}
+.map-status .grow span{font-size:13px; color:var(--muted)}
+#mapEl{height:52vh; min-height:300px; border-radius:16px; border:1px solid #c3d2e8; margin-top:12px; position:relative; z-index:0; overflow:hidden; box-shadow:0 4px 14px rgba(22,48,94,.10)}
+.loc-row{display:flex; align-items:center; gap:10px; margin-top:14px; text-align:left}
+.loc-row .loc-text{flex:1; min-width:0}
+.loc-row .loc-text b{display:block; color:var(--navy); font-size:15px}
+.loc-row .loc-text span{font-size:12px; color:var(--muted); line-height:1.4}
