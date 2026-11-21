@@ -243,9 +243,9 @@ async function main() {
     check('served HTML has the snap viewer overlay', html.includes('id="snapView"') && html.includes('id="snapImg"') && html.includes('id="snapClose"'));
     const js = await (await fetch(BASE + '/app.js')).text();
     check('served JS: attach sheet gains the Snap choice, camera gains the snap target',
-      js.includes('📸 Pick Snap — disappears after they see it') && js.includes("openCamera('snap')") && js.includes('sendThreadSnap') && js.includes("append('snap', '1')"));
+      js.includes('📸 Flash — disappears after they see it') && js.includes("openCamera('snap')") && js.includes('sendThreadSnap') && js.includes("append('snap', '1')"));
     check('served JS: tap-to-view chip, one-time open call, snap-opened live flip, snap previews',
-      js.includes('📸 Pick Snap — tap to view') && js.includes("/open'") && js.includes('snap-opened') && js.includes('📸 Pick Snap opened'));
+      js.includes('📸 Flash — tap to view') && js.includes("/open'") && js.includes('snap-opened') && js.includes('📸 Flash opened'));
     const css = await (await fetch(BASE + '/style.css')).text();
     check('served CSS styles the snap chip + viewer', css.includes('.snap-chip') && css.includes('.snap-stage'));
 
@@ -355,14 +355,14 @@ async function main() {
     check('A thread after open: sender sees the tombstone too', !!aSnap1After && aSnap1After.snapOpened === true && aSnap1After.mediaUrl === null, JSON.stringify(aSnap1After));
     r = await A.client.get('/api/conversations');
     const aConvo = r.data.conversations.find((c) => c.user.id === B.user.id);
-    check('A conversations: lastMessage is the unopened snap2 (📸 Pick Snap preview fields)',
+    check('A conversations: lastMessage is the unopened snap2 (📸 Flash preview fields)',
       !!aConvo && !!aConvo.lastMessage && aConvo.lastMessage.id === snap2.id && aConvo.lastMessage.isSnap === true && aConvo.lastMessage.snapOpened === false && aConvo.lastMessage.mediaUrl === null,
       JSON.stringify(aConvo && aConvo.lastMessage));
     op = await B.client.rawPost(`/api/messages/${snap2.id}/open`);
     check('B opens snap2 (200, byte-identical)', op.status === 200 && op.buf.equals(PNG_BYTES), `got ${op.status}`);
     r = await A.client.get('/api/conversations');
     const aConvo2 = r.data.conversations.find((c) => c.user.id === B.user.id);
-    check('A conversations: lastMessage now the opened snap2 (📸 Pick Snap opened preview fields)',
+    check('A conversations: lastMessage now the opened snap2 (📸 Flash opened preview fields)',
       !!aConvo2 && !!aConvo2.lastMessage && aConvo2.lastMessage.isSnap === true && aConvo2.lastMessage.snapOpened === true,
       JSON.stringify(aConvo2 && aConvo2.lastMessage));
 

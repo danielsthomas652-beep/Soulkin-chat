@@ -664,7 +664,7 @@ app.post('/api/messages/:userId', requireAuth, upload.single('media'), async (re
     }
     mediaType = 'image';
   }
-  if (isSnap && !mediaUrl) return res.status(400).json({ error: 'A Pick Snap needs a picture — take one with the camera first.' });
+  if (isSnap && !mediaUrl) return res.status(400).json({ error: 'A Flash needs a picture — take one with the camera first.' });
   if (!text && !mediaUrl) return res.status(400).json({ error: 'Write a message or add a picture first.' });
   const info = await db.prepare('INSERT INTO messages (sender_id, recipient_id, text, media_url, media_type, is_snap) VALUES (?, ?, ?, ?, ?, ?)')
     .run(req.user.id, gate.other.id, text, mediaUrl, mediaType, isSnap ? 1 : 0);
@@ -689,11 +689,11 @@ const MIME_BY_EXT = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'imag
 app.post('/api/messages/:messageId/open', requireAuth, async (req, res) => {
   const mid = +req.params.messageId;
   const m = Number.isInteger(mid) && mid > 0 ? await db.prepare('SELECT * FROM messages WHERE id = ?').get(mid) : null;
-  if (!m || !m.is_snap) return res.status(404).json({ error: 'That Pick Snap was not found.' });
-  if (m.sender_id === req.user.id) return res.status(403).json({ error: 'You sent this Pick Snap — only the friend you sent it to can open it.' });
-  if (m.recipient_id !== req.user.id) return res.status(403).json({ error: 'That Pick Snap was not sent to you.' });
-  if (m.opened_at) return res.status(410).json({ error: 'That Pick Snap was already opened — it\'s gone now.' });
-  if (!m.media_url) return res.status(410).json({ error: 'That Pick Snap is gone.' });
+  if (!m || !m.is_snap) return res.status(404).json({ error: 'That Flash was not found.' });
+  if (m.sender_id === req.user.id) return res.status(403).json({ error: 'You sent this Flash — only the friend you sent it to can open it.' });
+  if (m.recipient_id !== req.user.id) return res.status(403).json({ error: 'That Flash was not sent to you.' });
+  if (m.opened_at) return res.status(410).json({ error: 'That Flash was already opened — it\'s gone now.' });
+  if (!m.media_url) return res.status(410).json({ error: 'That Flash is gone.' });
   // Fetch the bytes BEFORE destroying the stored copy.
   let bytes = null, mime = 'application/octet-stream';
   if (m.media_url.startsWith('/media/')) {
@@ -704,7 +704,7 @@ app.post('/api/messages/:messageId/open', requireAuth, async (req, res) => {
     try { bytes = fs.readFileSync(filePath); } catch (e) { bytes = null; }
     mime = MIME_BY_EXT[path.extname(filePath).toLowerCase()] || mime;
   }
-  if (!bytes) return res.status(410).json({ error: 'That Pick Snap is gone.' });
+  if (!bytes) return res.status(410).json({ error: 'That Flash is gone.' });
   // The reveal and the destruction happen together: mark it opened,
   // drop the stored picture, null the URL — then stream the bytes.
   await db.prepare("UPDATE messages SET opened_at = datetime('now'), media_url = NULL WHERE id = ?").run(m.id);

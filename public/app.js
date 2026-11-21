@@ -832,8 +832,8 @@ document.addEventListener('click', async (e) => {
 
 /* ================= messages (private 1:1 chat between friends) =================
  * The Chat tab lists one row per friend: last message preview (a photo
- * with no caption previews as "📷 Photo"; a snap previews as "📸 Pick Snap"
- * or "📸 Pick Snap opened") + unread count. Tapping a row (or the Message
+ * with no caption previews as "📷 Photo"; a snap previews as "📸 Flash"
+ * or "📸 Flash opened") + unread count. Tapping a row (or the Message
  * button in the Friends list) opens the thread full-screen; opening it
  * marks their messages to me as read (the server does that in
  * GET /api/messages/:userId). A thread carries text, photo messages —
@@ -858,7 +858,7 @@ async function refreshUnreadBadge() {
 function convoRowHTML(c) {
   const u = c.user;
   const last = c.lastMessage;
-  const preview = last ? (last.mine ? 'You: ' : '') + (last.isSnap ? (last.snapOpened ? '📸 Pick Snap opened' : '📸 Pick Snap') : (last.text || (last.mediaUrl ? '📷 Photo' : ''))) : 'Say hi! 👋';
+  const preview = last ? (last.mine ? 'You: ' : '') + (last.isSnap ? (last.snapOpened ? '📸 Flash opened' : '📸 Flash') : (last.text || (last.mediaUrl ? '📷 Photo' : ''))) : 'Say hi! 👋';
   const when = last ? timeAgo(last.createdAt) : '';
   const pill = c.unread ? `<span class="unread-pill">${c.unread > 99 ? '99+' : c.unread}</span>` : '';
   return `<div class="card person convo" data-convo="${u.id}" data-msgname="${esc(u.displayName)}" data-msguser="${esc(u.username)}">${avatarHTML(u.displayName, u.username, 'md')}
@@ -881,9 +881,9 @@ function bubbleHTML(m) {
     // sends its URL). Mine shows sent/opened; theirs is a tap-to-view
     // chip until the one open spends it, then a tombstone.
     let chip;
-    if (m.mine) chip = `<div class="snap-chip ${m.snapOpened ? 'opened' : ''}">📸 Pick Snap — ${m.snapOpened ? 'opened' : 'sent'}</div>`;
-    else if (m.snapOpened) chip = '<div class="snap-chip opened">📸 Pick Snap — opened</div>';
-    else chip = `<button class="snap-chip tap" type="button" data-snap-open="${m.id}">📸 Pick Snap — tap to view</button>`;
+    if (m.mine) chip = `<div class="snap-chip ${m.snapOpened ? 'opened' : ''}">📸 Flash — ${m.snapOpened ? 'opened' : 'sent'}</div>`;
+    else if (m.snapOpened) chip = '<div class="snap-chip opened">📸 Flash — opened</div>';
+    else chip = `<button class="snap-chip tap" type="button" data-snap-open="${m.id}">📸 Flash — tap to view</button>`;
     return `<div class="bubble-row ${m.mine ? 'mine' : 'theirs'}" data-msg-row="${m.id}">${chip}${text}<div class="btime">${timeAgo(m.createdAt)}</div></div>`;
   }
   const photo = m.mediaUrl ? `<a class="bubble-photo" href="${esc(m.mediaUrl)}" target="_blank" rel="noopener"><img src="${esc(m.mediaUrl)}" alt="Photo" loading="lazy"></a>` : '';
@@ -952,7 +952,7 @@ function openThreadAttach() {
   $('#sheetBody').innerHTML = '<div class="attach-choices">' +
     '<button class="btn block" id="attPhoto" type="button">📷 Photo — pick from your pictures</button>' +
     '<button class="btn block" id="attCamera" type="button">📸 Camera — take a new picture</button>' +
-    '<button class="btn block" id="attSnap" type="button">📸 Pick Snap — disappears after they see it</button></div>';
+    '<button class="btn block" id="attSnap" type="button">📸 Flash — disappears after they see it</button></div>';
   $('#attPhoto').addEventListener('click', () => { closeSheet(); $('#threadPhotoFile').click(); });
   $('#attCamera').addEventListener('click', () => { closeSheet(); openCamera('thread'); });
   $('#attSnap').addEventListener('click', () => { closeSheet(); openCamera('snap'); });
@@ -968,13 +968,13 @@ async function sendThreadSnap(file) {
   try {
     const res = await fetch('/api/messages/' + peerId, { method: 'POST', body: fd });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'That Pick Snap could not be sent.');
+    if (!res.ok) throw new Error(data.error || 'That Flash could not be sent.');
     if (!chatPeer || chatPeer.id !== peerId) return; // thread closed or switched while sending
     const empty = $('#threadBody .empty'); if (empty) empty.remove();
     $('#threadBody').insertAdjacentHTML('beforeend', bubbleHTML(data.message));
     $('#threadText').value = '';
     scrollThread();
-    toast('Pick Snap sent 📸 — it disappears when they open it');
+    toast('Flash sent 📸 — it disappears when they open it');
   } catch (ex) { toast(ex.message); }
 }
 /* ---- opening a snap (recipient, exactly once) ----
@@ -1003,19 +1003,19 @@ async function openSnap(id, chip) {
   try {
     const res = await fetch('/api/messages/' + id + '/open', { method: 'POST' });
     if (!res.ok) {
-      let msg = 'That Pick Snap is gone.';
+      let msg = 'That Flash is gone.';
       try { const d = await res.json(); if (d.error) msg = d.error; } catch (e) { /* keep default */ }
       toast(msg);
       // It's spent either way — settle the chip into its tombstone.
-      if (chip) { const tomb = document.createElement('div'); tomb.className = 'snap-chip opened'; tomb.textContent = '📸 Pick Snap — opened'; chip.replaceWith(tomb); }
+      if (chip) { const tomb = document.createElement('div'); tomb.className = 'snap-chip opened'; tomb.textContent = '📸 Flash — opened'; chip.replaceWith(tomb); }
       return;
     }
     const blob = await res.blob();
-    if (chip) { const tomb = document.createElement('div'); tomb.className = 'snap-chip opened'; tomb.textContent = '📸 Pick Snap — opened'; chip.replaceWith(tomb); }
+    if (chip) { const tomb = document.createElement('div'); tomb.className = 'snap-chip opened'; tomb.textContent = '📸 Flash — opened'; chip.replaceWith(tomb); }
     showSnapViewer(URL.createObjectURL(blob));
     if (currentView === 'chat') loadConversations();
   } catch (ex) {
-    toast('That Pick Snap could not be opened.');
+    toast('That Flash could not be opened.');
     if (chip) chip.disabled = false;
   }
 }
@@ -1028,7 +1028,7 @@ document.addEventListener('click', (e) => {
 function onSnapOpened(m) {
   if (chatPeer && chatPeer.id === m.userId) {
     const chip = document.querySelector('[data-msg-row="' + m.messageId + '"] .snap-chip');
-    if (chip) { chip.textContent = '📸 Pick Snap — opened'; chip.classList.add('opened'); }
+    if (chip) { chip.textContent = '📸 Flash — opened'; chip.classList.add('opened'); }
   }
   if (currentView === 'chat') loadConversations();
 }
@@ -1070,7 +1070,7 @@ function onIncomingDm(m) {
     scrollThread();
     api('/api/messages/' + msg.senderId).then(() => refreshUnreadBadge()).catch(() => {});
   } else if (msg.from) {
-    const shown = msg.isSnap ? '📸 Pick Snap' : (msg.text || (msg.mediaUrl ? '📷 Photo' : ''));
+    const shown = msg.isSnap ? '📸 Flash' : (msg.text || (msg.mediaUrl ? '📷 Photo' : ''));
     toast('💬 ' + msg.from.displayName + ': ' + (shown.length > 60 ? shown.slice(0, 60) + '…' : shown));
   }
   if (currentView === 'chat') loadConversations();
