@@ -293,6 +293,8 @@ a.btn{text-decoration:none}
 .nav-badge{position:absolute; top:3px; left:calc(50% + 3px); background:var(--red); color:#fff; font-size:11px; font-weight:800; min-width:19px; height:19px; border-radius:999px; display:inline-flex; align-items:center; justify-content:center; padding:0 5px; border:2px solid rgba(255,255,255,.35)}
 .convo{cursor:pointer}
 .convo:active{background:var(--soft)}
+.friend-tap{cursor:pointer}
+.friend-tap:active{background:var(--soft)}
 .convo .preview{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:270px}
 .convo-side{display:flex; flex-direction:column; align-items:flex-end; gap:5px; flex:none}
 .unread-pill{background:var(--red); color:#fff; font-size:12px; font-weight:800; min-width:22px; height:22px; border-radius:999px; display:inline-flex; align-items:center; justify-content:center; padding:0 6px}

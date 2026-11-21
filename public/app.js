@@ -1212,12 +1212,15 @@ function renderMusicPicker() {
 }
 
 /* ================= people & friends ================= */
-function personRowHTML(p, actionHTML) {
+function personRowHTML(p, actionHTML, chatTap) {
   const posts = p.postCount != null ? ` · ${p.postCount} post${p.postCount === 1 ? '' : 's'}` : '';
   const dot = typeof p.online === 'boolean' ? `<span class="online-dot ${friendOnline(p) ? 'on' : ''}" data-dot-for="${p.id}" title="${friendOnline(p) ? 'Online now' : 'Offline'}"></span>` : '';
   // An adult receiving a request from a Protected account gets a plain note.
   const note = (p.relationship === 'pending_in' && p.crossBand && p.isProtected) ? '<div class="friend-note">Protected account (under 18)</div>' : '';
-  return `<div class="card person">${userAvatarHTML(p, 'md')}
+  // Friends-list rows only (chatTap): the whole row opens the chat thread —
+  // see the [data-friend-row] branch of the thread-opening click delegation.
+  const tapAttrs = chatTap ? ` data-friend-row="${p.id}" data-msgname="${esc(p.displayName)}" data-msguser="${esc(p.username)}"` : '';
+  return `<div class="card person${chatTap ? ' friend-tap' : ''}"${tapAttrs}>${userAvatarHTML(p, 'md')}
     <div class="grow"><div class="nm">${dot}${esc(p.displayName)}${p.isProtected ? '<span class="badge">🛡️ Protected</span>' : ''}</div><div class="sub">@${esc(p.username)}${posts}</div>${note}</div>
     ${actionHTML || ''}</div>`;
 }
@@ -1250,7 +1253,7 @@ async function loadFriends() {
     $('#grownupRequests').classList.toggle('hidden', grownups.length === 0);
     $('#friendRequestsGrownups').innerHTML = grownups.map((p) => personRowHTML(p, acceptDeclineBtns(p))).join('');
     $('#friendList').innerHTML = data.friends.length
-      ? data.friends.map((p) => personRowHTML(p, `<span class="friend-btns"><button class="btn sm" data-message="${p.id}" data-msgname="${esc(p.displayName)}" data-msguser="${esc(p.username)}" type="button">💬 Message</button>${p.phone ? `<a class="btn sm call-link" href="tel:${esc(p.phone)}">📞 Call</a>` : ''}<button class="btn sm" data-call="${p.id}" data-callname="${esc(p.displayName)}" type="button">📹 Video call</button><button class="btn ghost sm" data-friend="remove" data-id="${p.id}" type="button">Unfriend</button></span>`)).join('')
+      ? data.friends.map((p) => personRowHTML(p, `<span class="friend-btns"><button class="btn sm" data-message="${p.id}" data-msgname="${esc(p.displayName)}" data-msguser="${esc(p.username)}" type="button">💬 Message</button>${p.phone ? `<a class="btn sm call-link" href="tel:${esc(p.phone)}">📞 Call</a>` : ''}<button class="btn sm" data-call="${p.id}" data-callname="${esc(p.displayName)}" type="button">📹 Video call</button><button class="btn ghost sm" data-friend="remove" data-id="${p.id}" type="button">Unfriend</button></span>`, true)).join('')
       : '<div class="card empty">No friends yet — add some from the People page! 🙂</div>';
     $('#friendOutgoing').innerHTML = data.outgoing.length
       ? data.outgoing.map((p) => personRowHTML(p, '<span class="friend-state">Requested</span>')).join('')
@@ -1539,12 +1542,22 @@ async function sendThreadPhoto(file) {
 }
 $('#threadAttach').addEventListener('click', openThreadAttach);
 $('#threadPhotoFile').addEventListener('change', (e) => { if (e.target.files[0]) sendThreadPhoto(e.target.files[0]); e.target.value = ''; });
-/* conversation rows + Friends-list Message buttons open the thread */
+/* conversation rows, Friends-list Message buttons and friend-row taps open the thread */
 document.addEventListener('click', (e) => {
   const row = e.target.closest('[data-convo]');
   if (row) { openThread({ id: +row.dataset.convo, displayName: row.dataset.msgname, username: row.dataset.msguser }); return; }
   const btn = e.target.closest('[data-message]');
-  if (btn) openThread({ id: +btn.dataset.message, displayName: btn.dataset.msgname, username: btn.dataset.msguser });
+  if (btn) { openThread({ id: +btn.dataset.message, displayName: btn.dataset.msgname, username: btn.dataset.msguser }); return; }
+  const frow = e.target.closest('[data-friend-row]');
+  if (frow) {
+    // Tapping a friend's row (avatar, name, row body) opens the chat — but
+    // the row's own controls keep their own jobs: the 📞 Call link, the 📹
+    // Video call and Unfriend buttons (and the 💬 button, handled above)
+    // must not ALSO open the chat, so any tap that landed on a link or a
+    // button inside the row stops here and lets those handlers run.
+    if (e.target.closest('a, button')) return;
+    openThread({ id: +frow.dataset.friendRow, displayName: frow.dataset.msgname, username: frow.dataset.msguser });
+  }
 });
 function onIncomingDm(m) {
   const msg = m.message;
