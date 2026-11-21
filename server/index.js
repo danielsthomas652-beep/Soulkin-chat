@@ -503,10 +503,24 @@ app.get('/api/friends', requireAuth, async (req, res) => {
 // also pushed live over the same WebSocket as call signaling (wsSend is
 // defined in the signaling section below — handlers only run after the
 // whole module has loaded, so the reference is safe).
+// SNAPS: a message with is_snap = 1 is a disappearing snap. Its photo
+// is stored like any photo DM, but its media_url is server-only —
+// messageRow never exposes it — and the recipient's one open (the
+// /open endpoint below) deletes the stored picture for good.
 function messageRow(m, meId) {
+  const isSnap = !!m.is_snap;
   return {
     id: m.id, senderId: m.sender_id, recipientId: m.recipient_id, text: m.text,
-    mediaUrl: m.media_url || null, mediaType: m.media_type || null,
+    // SNAP SECRECY: a snap's stored media_url is server-only. It is
+    // NEVER handed to any client — not in threads, not in conversation
+    // lists, not in the live dm push, not even to the sender. The one
+    // and only reveal is POST /api/messages/:messageId/open, which
+    // streams the bytes to the recipient once and deletes the picture.
+    mediaUrl: isSnap ? null : (m.media_url || null),
+    mediaType: isSnap ? null : (m.media_type || null),
+    isSnap,
+    snapOpened: isSnap ? !!m.opened_at : false,
+    openedAt: isSnap ? (m.opened_at || null) : null,
     createdAt: m.created_at, readAt: m.read_at, mine: m.sender_id === meId,
   };
 }
@@ -538,12 +552,19 @@ async function messagingGate(me, otherId) {
 // /uploads/ file in local mode, capped at the posts photo cap (5 MB).
 // Text-only messages keep arriving as JSON. The gate runs first and is
 // unchanged — photos get no shortcut around the friend rules.
+//
+// A SNAP is a photo message sent with snap=1 (multipart field): same
+// gate, same storage, same cap — but flagged is_snap. From that moment
+// the stored media_url is server-only (messageRow never exposes it);
+// the recipient reveals the picture exactly once via the snap-open
+// endpoint below, which deletes the stored image in the same request.
 app.post('/api/messages/:userId', requireAuth, upload.single('media'), async (req, res) => {
   const gate = await messagingGate(req.user, +req.params.userId);
   if (!gate.other) {
     if (req.file && req.file.path) { try { fs.unlinkSync(req.file.path); } catch (e) { /* already gone */ } }
     return res.status(gate.status).json({ error: gate.error });
   }
+  const isSnap = String((req.body || {}).snap || '') === '1';
   const raw = String((req.body || {}).text || '').trim();
   const text = cleanText(raw.slice(0, 1000));
   let mediaUrl = null, mediaType = null;
@@ -566,15 +587,60 @@ app.post('/api/messages/:userId', requireAuth, upload.single('media'), async (re
     }
     mediaType = 'image';
   }
+  if (isSnap && !mediaUrl) return res.status(400).json({ error: 'A snap needs a picture — take one with the camera first.' });
   if (!text && !mediaUrl) return res.status(400).json({ error: 'Write a message or add a picture first.' });
-  const info = await db.prepare('INSERT INTO messages (sender_id, recipient_id, text, media_url, media_type) VALUES (?, ?, ?, ?, ?)')
-    .run(req.user.id, gate.other.id, text, mediaUrl, mediaType);
+  const info = await db.prepare('INSERT INTO messages (sender_id, recipient_id, text, media_url, media_type, is_snap) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(req.user.id, gate.other.id, text, mediaUrl, mediaType, isSnap ? 1 : 0);
   const row = await db.prepare('SELECT * FROM messages WHERE id = ?').get(info.lastInsertRowid);
   // Live push to the recipient (if they're here right now): the message
   // itself, then their new unread total for the Chat badge.
   wsSend(gate.other.id, { type: 'dm', message: { ...messageRow(row, gate.other.id), from: publicUser(req.user) } });
   wsSend(gate.other.id, { type: 'dm-unread', count: await totalUnread(gate.other.id) });
   res.json({ message: messageRow(row, req.user.id) });
+});
+// ----- disappearing snaps: the one-time reveal -----
+// POST /api/messages/:messageId/open — recipient only, unopened snaps
+// only. Streams the picture bytes in THIS response (a snap's mediaUrl
+// is never given out — see messageRow), and deletes the stored picture
+// in the same request: the media_blobs row goes (cloud mode) or the
+// uploads file is unlinked (local mode), media_url is nulled and
+// opened_at is set. After that the old /media/:id URL 404s and a
+// second open is a 410 — the picture is gone; only the tombstone row
+// ("Snap opened") stays. The sender can never open their own snap,
+// and nobody who isn't the recipient can open it either.
+const MIME_BY_EXT = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
+app.post('/api/messages/:messageId/open', requireAuth, async (req, res) => {
+  const mid = +req.params.messageId;
+  const m = Number.isInteger(mid) && mid > 0 ? await db.prepare('SELECT * FROM messages WHERE id = ?').get(mid) : null;
+  if (!m || !m.is_snap) return res.status(404).json({ error: 'That snap was not found.' });
+  if (m.sender_id === req.user.id) return res.status(403).json({ error: 'You sent this snap — only the friend you sent it to can open it.' });
+  if (m.recipient_id !== req.user.id) return res.status(403).json({ error: 'That snap was not sent to you.' });
+  if (m.opened_at) return res.status(410).json({ error: 'That snap was already opened — it\'s gone now.' });
+  if (!m.media_url) return res.status(410).json({ error: 'That snap is gone.' });
+  // Fetch the bytes BEFORE destroying the stored copy.
+  let bytes = null, mime = 'application/octet-stream';
+  if (m.media_url.startsWith('/media/')) {
+    const blob = await db.prepare('SELECT mime, data FROM media_blobs WHERE id = ?').get(m.media_url.slice('/media/'.length));
+    if (blob) { bytes = blobToBuffer(blob.data); mime = blob.mime; }
+  } else if (m.media_url.startsWith('/uploads/')) {
+    const filePath = path.join(UPLOADS_DIR, path.basename(m.media_url));
+    try { bytes = fs.readFileSync(filePath); } catch (e) { bytes = null; }
+    mime = MIME_BY_EXT[path.extname(filePath).toLowerCase()] || mime;
+  }
+  if (!bytes) return res.status(410).json({ error: 'That snap is gone.' });
+  // The reveal and the destruction happen together: mark it opened,
+  // drop the stored picture, null the URL — then stream the bytes.
+  await db.prepare("UPDATE messages SET opened_at = datetime('now'), media_url = NULL WHERE id = ?").run(m.id);
+  if (m.media_url.startsWith('/media/')) {
+    await db.prepare('DELETE FROM media_blobs WHERE id = ?').run(m.media_url.slice('/media/'.length));
+  } else if (m.media_url.startsWith('/uploads/')) {
+    try { fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(m.media_url))); } catch (e) { /* already gone */ }
+  }
+  wsSend(m.sender_id, { type: 'snap-opened', messageId: m.id, userId: req.user.id });
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Content-Length', bytes.length);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(bytes);
 });
 app.get('/api/messages/:userId', requireAuth, async (req, res) => {
   const gate = await messagingGate(req.user, +req.params.userId);

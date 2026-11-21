@@ -241,6 +241,16 @@ a.btn{text-decoration:none}
 .bubble-photo{display:block; line-height:0}
 .bubble-photo img{display:block; max-width:230px; max-height:300px; width:auto; height:auto; border-radius:14px; border:1px solid var(--border)}
 .bubble-row .bubble-photo + .bubble{margin-top:5px}
+.snap-chip{display:inline-block; padding:10px 14px; border-radius:16px; font-size:15px; font-weight:700; border:2px dashed var(--navy2); background:#fff; color:var(--navy); text-align:left}
+.bubble-row.mine .snap-chip{background:var(--navy); border-color:var(--navy); color:#fff}
+.snap-chip.tap{cursor:pointer}
+.snap-chip.tap:active{transform:scale(.97)}
+.snap-chip.opened{border-style:solid; border-color:var(--border); background:var(--soft); color:var(--muted); font-weight:600}
+.bubble-row.mine .snap-chip.opened{background:var(--soft); color:var(--muted)}
+.bubble-row .snap-chip + .bubble{margin-top:5px}
+.snap-stage{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:16px}
+.snap-stage img{max-width:100%; max-height:82%; object-fit:contain; border-radius:12px; background:#000}
+.snap-note{color:rgba(255,255,255,.75); font-size:13px; text-align:center; margin:0}
 .thread-form{display:flex; gap:8px; width:100%; max-width:560px; margin:0 auto; padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
 .thread-form input{flex:1; border:1.5px solid var(--border); border-radius:999px; padding:11px 15px; background:#fff; color:var(--ink)}
 .thread-form input:focus{outline:none; border-color:var(--navy2)}

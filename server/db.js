@@ -181,6 +181,8 @@ CREATE TABLE IF NOT EXISTS messages (
   text TEXT NOT NULL,
   media_url TEXT,
   media_type TEXT,
+  is_snap INTEGER NOT NULL DEFAULT 0,
+  opened_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   read_at TEXT
 );
@@ -211,6 +213,18 @@ async function initDb() {
   }
   if (!msgCols.some((c) => c.name === 'media_type')) {
     await db.exec('ALTER TABLE messages ADD COLUMN media_type TEXT');
+  }
+  // Migration for databases created before disappearing snaps:
+  // messages.is_snap marks a Snapchat-style snap (its media_url is
+  // server-only — never sent to any client) and opened_at records the
+  // one moment the recipient opened it, at which point the stored
+  // picture is deleted and media_url is nulled (see the snap-open
+  // endpoint in server/index.js). Same reasoning as above.
+  if (!msgCols.some((c) => c.name === 'is_snap')) {
+    await db.exec('ALTER TABLE messages ADD COLUMN is_snap INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!msgCols.some((c) => c.name === 'opened_at')) {
+    await db.exec('ALTER TABLE messages ADD COLUMN opened_at TEXT');
   }
   // Migration for databases created before phone dialing: users.phone is
   // the owner's optional phone number, shared ONLY with accepted friends

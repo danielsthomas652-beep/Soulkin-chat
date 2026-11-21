@@ -100,7 +100,7 @@ $$('.bottomnav button').forEach((b) => b.addEventListener('click', () => showVie
  * vertical scrolling never triggers it. */
 const TAB_ORDER = ['feed', 'videos', 'people', 'friends', 'chat', 'profile'];
 function anyOverlayOpen() {
-  return ['#viewer', '#callView', '#postEditor', '#cameraView', '#threadView', '#sheet', '#callPopup', '#knowConfirm'].some((s) => !$(s).classList.contains('hidden'));
+  return ['#viewer', '#callView', '#postEditor', '#cameraView', '#threadView', '#snapView', '#sheet', '#callPopup', '#knowConfirm'].some((s) => !$(s).classList.contains('hidden'));
 }
 function insideHScroller(el) {
   while (el && el !== document.body) {
@@ -323,11 +323,13 @@ $('#editorPost').addEventListener('click', async () => {
  *     feeds, so posting works exactly as before.
  *   'thread' — sends it straight to the friend whose message thread is
  *     open (sendThreadPhoto), as a photo DM.
+ *   'snap' — sends it to that same friend as a DISAPPEARING snap
+ *     (sendThreadSnap): they get one look, then the picture is deleted.
  * Leaving the camera screen (capture, ✕, Escape) always stops its
  * tracks; closing without capturing changes nothing. */
 let camStream = null;
 let camFacing = 'environment'; // rear camera first — for photographing other people
-let camTarget = 'editor'; // 'editor' | 'thread' — set by openCamera()
+let camTarget = 'editor'; // 'editor' | 'thread' | 'snap' — set by openCamera()
 
 function cameraErrorMessage(e) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || (e && e.name === 'UnsupportedError')) {
@@ -357,7 +359,7 @@ async function startCameraStream() {
     : 'Front camera — tap the big button when you\'re ready 📸';
 }
 async function openCamera(target) {
-  camTarget = target === 'thread' ? 'thread' : 'editor';
+  camTarget = (target === 'thread' || target === 'snap') ? target : 'editor';
   $('#cameraView').classList.remove('hidden');
   $('#camHint').textContent = 'Starting your camera…';
   try { await startCameraStream(); }
@@ -385,6 +387,7 @@ function capturePhoto() {
     const target = camTarget;
     closeCamera();
     if (target === 'thread') { sendThreadPhoto(file); return; } // photo DM to the open thread
+    if (target === 'snap') { sendThreadSnap(file); return; } // disappearing snap to the open thread
     setEditorFile(file, 'image'); // the same draft state the gallery picker feeds
     openEditor(false);
     toast('Got it! Add some words, then tap Post 📸');
@@ -826,14 +829,19 @@ document.addEventListener('click', async (e) => {
 
 /* ================= messages (private 1:1 chat between friends) =================
  * The Chat tab lists one row per friend: last message preview (a photo
- * with no caption previews as "📷 Photo") + unread count. Tapping a row
- * (or the Message button in the Friends list) opens the thread
- * full-screen; opening it marks their messages to me as read (the
- * server does that in GET /api/messages/:userId). A thread carries text
- * and photo messages — the 📷 button beside the input sends a picture
- * from the gallery or the in-app camera. New messages arrive live over
+ * with no caption previews as "📷 Photo"; a snap previews as "📸 Snap"
+ * or "📸 Snap opened") + unread count. Tapping a row (or the Message
+ * button in the Friends list) opens the thread full-screen; opening it
+ * marks their messages to me as read (the server does that in
+ * GET /api/messages/:userId). A thread carries text, photo messages —
+ * the 📷 button beside the input sends a picture from the gallery or
+ * the in-app camera — and DISAPPEARING SNAPS: a snap arrives as a
+ * tap-to-view chip (never a picture; the server never sends its URL),
+ * and the one tap spends it — the server streams the bytes once and
+ * deletes its copy in the same request. New messages arrive live over
  * the same WebSocket as call signaling: {type:'dm'} appends to an open
- * thread, {type:'dm-unread'} refreshes the badge on the Chat tab. */
+ * thread, {type:'dm-unread'} refreshes the badge on the Chat tab, and
+ * {type:'snap-opened'} flips the sender's chip to "opened". */
 let chatPeer = null; // the friend whose thread is open: {id, displayName, username}
 
 function setUnreadBadge(n) {
@@ -847,7 +855,7 @@ async function refreshUnreadBadge() {
 function convoRowHTML(c) {
   const u = c.user;
   const last = c.lastMessage;
-  const preview = last ? (last.mine ? 'You: ' : '') + (last.text || (last.mediaUrl ? '📷 Photo' : '')) : 'Say hi! 👋';
+  const preview = last ? (last.mine ? 'You: ' : '') + (last.isSnap ? (last.snapOpened ? '📸 Snap opened' : '📸 Snap') : (last.text || (last.mediaUrl ? '📷 Photo' : ''))) : 'Say hi! 👋';
   const when = last ? timeAgo(last.createdAt) : '';
   const pill = c.unread ? `<span class="unread-pill">${c.unread > 99 ? '99+' : c.unread}</span>` : '';
   return `<div class="card person convo" data-convo="${u.id}" data-msgname="${esc(u.displayName)}" data-msguser="${esc(u.username)}">${avatarHTML(u.displayName, u.username, 'md')}
@@ -864,9 +872,19 @@ async function loadConversations() {
   } catch (e) { toast(e.message); }
 }
 function bubbleHTML(m) {
-  const photo = m.mediaUrl ? `<a class="bubble-photo" href="${esc(m.mediaUrl)}" target="_blank" rel="noopener"><img src="${esc(m.mediaUrl)}" alt="Photo" loading="lazy"></a>` : '';
   const text = m.text ? `<div class="bubble">${esc(m.text)}</div>` : '';
-  return `<div class="bubble-row ${m.mine ? 'mine' : 'theirs'}">${photo}${text}<div class="btime">${timeAgo(m.createdAt)}</div></div>`;
+  if (m.isSnap) {
+    // A snap bubble NEVER carries the picture itself (the server never
+    // sends its URL). Mine shows sent/opened; theirs is a tap-to-view
+    // chip until the one open spends it, then a tombstone.
+    let chip;
+    if (m.mine) chip = `<div class="snap-chip ${m.snapOpened ? 'opened' : ''}">📸 Snap — ${m.snapOpened ? 'opened' : 'sent'}</div>`;
+    else if (m.snapOpened) chip = '<div class="snap-chip opened">📸 Snap — opened</div>';
+    else chip = `<button class="snap-chip tap" type="button" data-snap-open="${m.id}">📸 Snap — tap to view</button>`;
+    return `<div class="bubble-row ${m.mine ? 'mine' : 'theirs'}" data-msg-row="${m.id}">${chip}${text}<div class="btime">${timeAgo(m.createdAt)}</div></div>`;
+  }
+  const photo = m.mediaUrl ? `<a class="bubble-photo" href="${esc(m.mediaUrl)}" target="_blank" rel="noopener"><img src="${esc(m.mediaUrl)}" alt="Photo" loading="lazy"></a>` : '';
+  return `<div class="bubble-row ${m.mine ? 'mine' : 'theirs'}" data-msg-row="${m.id}">${photo}${text}<div class="btime">${timeAgo(m.createdAt)}</div></div>`;
 }
 function scrollThread() { const b = $('#threadBody'); b.scrollTop = b.scrollHeight; }
 async function openThread(user) {
@@ -916,21 +934,100 @@ $('#threadForm').addEventListener('submit', async (e) => {
     scrollThread();
   } catch (ex) { toast(ex.message); }
 });
-/* ---- photo messages ----
- * The 📷 button beside the thread input opens a small sheet with two
+/* ---- photo messages + snaps ----
+ * The 📷 button beside the thread input opens a small sheet with three
  * choices, in the same style as the other sheets: Photo (pick from the
  * gallery) or Camera (the in-app camera, opened in its 'thread' mode so
- * the capture comes back here instead of the post editor). Both paths
- * end in sendThreadPhoto, which posts multipart — the same 'media'
- * field posts use — with anything typed in the input as the caption. */
+ * the capture comes back here instead of the post editor) — both end in
+ * sendThreadPhoto — or Snap (the camera in its 'snap' mode), which ends
+ * in sendThreadSnap: a disappearing picture the friend can open exactly
+ * once. All post multipart — the same 'media' field posts use — with
+ * anything typed in the input as the caption. */
 function openThreadAttach() {
   if (!chatPeer) return;
   openSheet('Send a photo 📷');
   $('#sheetBody').innerHTML = '<div class="attach-choices">' +
     '<button class="btn block" id="attPhoto" type="button">📷 Photo — pick from your pictures</button>' +
-    '<button class="btn block" id="attCamera" type="button">📸 Camera — take a new picture</button></div>';
+    '<button class="btn block" id="attCamera" type="button">📸 Camera — take a new picture</button>' +
+    '<button class="btn block" id="attSnap" type="button">📸 Snap — disappears after they see it</button></div>';
   $('#attPhoto').addEventListener('click', () => { closeSheet(); $('#threadPhotoFile').click(); });
   $('#attCamera').addEventListener('click', () => { closeSheet(); openCamera('thread'); });
+  $('#attSnap').addEventListener('click', () => { closeSheet(); openCamera('snap'); });
+}
+async function sendThreadSnap(file) {
+  if (!chatPeer || !file) return;
+  const peerId = chatPeer.id;
+  const fd = new FormData();
+  const caption = $('#threadText').value.trim();
+  if (caption) fd.append('text', caption);
+  fd.append('snap', '1');
+  fd.append('media', file);
+  try {
+    const res = await fetch('/api/messages/' + peerId, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'That snap could not be sent.');
+    if (!chatPeer || chatPeer.id !== peerId) return; // thread closed or switched while sending
+    const empty = $('#threadBody .empty'); if (empty) empty.remove();
+    $('#threadBody').insertAdjacentHTML('beforeend', bubbleHTML(data.message));
+    $('#threadText').value = '';
+    scrollThread();
+    toast('Snap sent 📸 — it disappears when they open it');
+  } catch (ex) { toast(ex.message); }
+}
+/* ---- opening a snap (recipient, exactly once) ----
+ * Tapping a snap chip calls the open endpoint, which streams the
+ * picture bytes AND deletes the stored copy in the same request. The
+ * bytes live only in an object URL for the viewer, revoked the moment
+ * it closes — nothing is kept, cached or re-openable. */
+let snapObjectUrl = null;
+function showSnapViewer(url) {
+  snapObjectUrl = url;
+  $('#snapImg').src = url;
+  $('#snapView').classList.remove('hidden');
+}
+function closeSnapViewer() {
+  $('#snapView').classList.add('hidden');
+  $('#snapImg').removeAttribute('src');
+  if (snapObjectUrl) { URL.revokeObjectURL(snapObjectUrl); snapObjectUrl = null; }
+}
+$('#snapClose').addEventListener('click', closeSnapViewer);
+$('#snapStage').addEventListener('click', closeSnapViewer);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#snapView').classList.contains('hidden')) closeSnapViewer();
+});
+async function openSnap(id, chip) {
+  if (chip) chip.disabled = true;
+  try {
+    const res = await fetch('/api/messages/' + id + '/open', { method: 'POST' });
+    if (!res.ok) {
+      let msg = 'That snap is gone.';
+      try { const d = await res.json(); if (d.error) msg = d.error; } catch (e) { /* keep default */ }
+      toast(msg);
+      // It's spent either way — settle the chip into its tombstone.
+      if (chip) { const tomb = document.createElement('div'); tomb.className = 'snap-chip opened'; tomb.textContent = '📸 Snap — opened'; chip.replaceWith(tomb); }
+      return;
+    }
+    const blob = await res.blob();
+    if (chip) { const tomb = document.createElement('div'); tomb.className = 'snap-chip opened'; tomb.textContent = '📸 Snap — opened'; chip.replaceWith(tomb); }
+    showSnapViewer(URL.createObjectURL(blob));
+    if (currentView === 'chat') loadConversations();
+  } catch (ex) {
+    toast('That snap could not be opened.');
+    if (chip) chip.disabled = false;
+  }
+}
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-snap-open]');
+  if (chip) openSnap(+chip.dataset.snapOpen, chip);
+});
+/* The sender learns live that their snap was opened: flip the chip in
+ * the open thread (reload shows the same tombstone from the server). */
+function onSnapOpened(m) {
+  if (chatPeer && chatPeer.id === m.userId) {
+    const chip = document.querySelector('[data-msg-row="' + m.messageId + '"] .snap-chip');
+    if (chip) { chip.textContent = '📸 Snap — opened'; chip.classList.add('opened'); }
+  }
+  if (currentView === 'chat') loadConversations();
 }
 async function sendThreadPhoto(file) {
   if (!chatPeer || !file) return;
@@ -970,7 +1067,7 @@ function onIncomingDm(m) {
     scrollThread();
     api('/api/messages/' + msg.senderId).then(() => refreshUnreadBadge()).catch(() => {});
   } else if (msg.from) {
-    const shown = msg.text || (msg.mediaUrl ? '📷 Photo' : '');
+    const shown = msg.isSnap ? '📸 Snap' : (msg.text || (msg.mediaUrl ? '📷 Photo' : ''));
     toast('💬 ' + msg.from.displayName + ': ' + (shown.length > 60 ? shown.slice(0, 60) + '…' : shown));
   }
   if (currentView === 'chat') loadConversations();
@@ -1013,6 +1110,7 @@ function onWsMessage(m) {
   if (m.type === 'presence') { onlineFriends = new Set(m.online || []); presenceReady = true; patchOnlineDots(); }
   else if (m.type === 'dm') onIncomingDm(m);
   else if (m.type === 'dm-unread') setUnreadBadge(m.count || 0);
+  else if (m.type === 'snap-opened') onSnapOpened(m);
   else if (m.type === 'friend-online' && m.user) { onlineFriends.add(m.user.id); patchOnlineDots(); }
   else if (m.type === 'friend-offline' && m.user) { onlineFriends.delete(m.user.id); patchOnlineDots(); }
   else if (m.type === 'incoming-call') showIncomingCall(m);
