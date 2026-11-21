@@ -758,7 +758,7 @@ async function loadFriends() {
     $('#grownupRequests').classList.toggle('hidden', grownups.length === 0);
     $('#friendRequestsGrownups').innerHTML = grownups.map((p) => personRowHTML(p, acceptDeclineBtns(p))).join('');
     $('#friendList').innerHTML = data.friends.length
-      ? data.friends.map((p) => personRowHTML(p, `<span class="friend-btns"><button class="btn sm" data-message="${p.id}" data-msgname="${esc(p.displayName)}" data-msguser="${esc(p.username)}" type="button">💬 Message</button><button class="btn sm" data-call="${p.id}" data-callname="${esc(p.displayName)}" type="button">📹 Video call</button><button class="btn ghost sm" data-friend="remove" data-id="${p.id}" type="button">Unfriend</button></span>`)).join('')
+      ? data.friends.map((p) => personRowHTML(p, `<span class="friend-btns"><button class="btn sm" data-message="${p.id}" data-msgname="${esc(p.displayName)}" data-msguser="${esc(p.username)}" type="button">💬 Message</button>${p.phone ? `<a class="btn sm call-link" href="tel:${esc(p.phone)}">📞 Call</a>` : ''}<button class="btn sm" data-call="${p.id}" data-callname="${esc(p.displayName)}" type="button">📹 Video call</button><button class="btn ghost sm" data-friend="remove" data-id="${p.id}" type="button">Unfriend</button></span>`)).join('')
       : '<div class="card empty">No friends yet — add some from the People page! 🙂</div>';
     $('#friendOutgoing').innerHTML = data.outgoing.length
       ? data.outgoing.map((p) => personRowHTML(p, '<span class="friend-state">Requested</span>')).join('')
@@ -873,11 +873,15 @@ async function openThread(user) {
   chatPeer = user;
   $('#threadAvatar').innerHTML = avatarHTML(user.displayName, user.username, 'sm');
   $('#threadName').textContent = user.displayName;
+  const callLink = $('#threadCall'); // 📞 Call — shown only when the server shared a number
+  callLink.classList.add('hidden');
+  callLink.removeAttribute('href');
   $('#threadBody').innerHTML = '<p class="empty">Loading…</p>';
   $('#threadView').classList.remove('hidden');
   try {
     const data = await api('/api/messages/' + user.id);
     if (!chatPeer || chatPeer.id !== user.id) return; // closed or switched while loading
+    if (data.user && data.user.phone) { callLink.href = 'tel:' + data.user.phone; callLink.classList.remove('hidden'); }
     $('#threadBody').innerHTML = data.messages.length
       ? data.messages.map(bubbleHTML).join('')
       : '<p class="empty">No messages yet — say hi! 👋</p>';
@@ -1178,6 +1182,10 @@ async function loadProfile() {
     $('#stLikes').textContent = data.stats.likesReceived;
     $('#stComments').textContent = data.stats.comments;
     if (!$('#editName').value) $('#editName').placeholder = me.displayName;
+    $('#editPhone').value = me.phone || '';
+    $('#phoneHint').textContent = me.isProtected
+      ? '🛡️ Your number stays private — it is never shown to anyone, not even friends.'
+      : 'Add your number and your friends get a 📞 Call button that rings your real phone. Only friends can see it — clear the box and Save to turn it off.';
     const mine = await api('/api/my/posts');
     const box = $('#myPosts');
     box.innerHTML = mine.posts.length ? mine.posts.map(postCardHTML).join('') : '<div class="card empty">You have not posted yet — say hi! 👋</div>';
@@ -1195,6 +1203,14 @@ $('#btnSaveName').addEventListener('click', async () => {
     $('#composerAvatar').innerHTML = avatarHTML(me.displayName, me.username, 'md');
     loadProfile(); loadFeed();
     toast('Name saved ✅');
+  } catch (e) { toast(e.message); }
+});
+$('#btnSavePhone').addEventListener('click', async () => {
+  try {
+    const r = await api('/api/me', { method: 'PATCH', body: JSON.stringify({ phone: $('#editPhone').value.trim() }) });
+    me = r.user;
+    $('#editPhone').value = me.phone || '';
+    toast(me.phone ? 'Phone number saved 📞 — friends can call you now' : 'Phone number removed — nobody can call you from the app');
   } catch (e) { toast(e.message); }
 });
 $('#btnLogout').addEventListener('click', async () => {

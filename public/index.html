@@ -127,6 +127,11 @@
           <input id="editName" type="text" maxlength="40" placeholder="Change your name">
           <button class="btn" id="btnSaveName" type="button">Save</button>
         </div>
+        <div class="edit-row">
+          <input id="editPhone" type="tel" autocomplete="tel" maxlength="20" placeholder="Phone number (optional)">
+          <button class="btn" id="btnSavePhone" type="button">Save</button>
+        </div>
+        <p class="phone-hint" id="phoneHint"></p>
         <button class="btn ghost block" id="btnLogout" type="button" style="margin-top:12px">Log out</button>
       </div>
       <div class="view-title"><span class="dot"></span> My posts</div>
@@ -266,6 +271,7 @@
     <button class="x" id="threadBack" type="button" aria-label="Back">‹</button>
     <span id="threadAvatar"></span>
     <b id="threadName">Friend</b>
+    <a id="threadCall" class="thread-call hidden" href="#">📞 Call</a>
   </div>
   <div class="thread-body" id="threadBody"></div>
   <form class="thread-form" id="threadForm">

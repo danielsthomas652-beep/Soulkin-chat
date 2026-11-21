@@ -75,6 +75,45 @@ function publicUser(u) {
   if (!u) return null;
   return { id: u.id, displayName: u.display_name, username: u.username, isProtected: !!u.is_protected, createdAt: u.created_at };
 }
+// publicUser deliberately carries NO phone number — a number is personal
+// data with its own sharing rules (see visiblePhone), so it is only ever
+// attached explicitly, per viewer, by the endpoints below. /api/me is
+// the one place a user sees their OWN number, via ownUser().
+function ownUser(u) {
+  if (!u) return null;
+  return { ...publicUser(u), phone: u.phone || null };
+}
+// Normalizes a phone number the user typed on their profile: spaces,
+// dashes and parentheses are decoration and are stripped; one leading
+// '+' (country code) is kept. Returns { phone } — the value to store,
+// null when the field was cleared — or { error } in plain language.
+function normalizePhone(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return { phone: null };
+  const stripped = s.replace(/[\s\-()]/g, '');
+  if (!/^\+?\d{7,15}$/.test(stripped)) {
+    return { error: 'That phone number doesn\'t look right — use 7 to 15 numbers (you can start with + for a country code).' };
+  }
+  return { phone: stripped };
+}
+// THE phone-sharing rule, server-enforced (never trust the UI to hide
+// it). `me` may see `other`'s number only when ALL of these hold:
+//   * other actually shared one (a non-empty users.phone), AND
+//   * other is NOT Protected — a Protected (under-18) user's number is
+//     NEVER returned to anyone, not even friends, AND
+//   * the two are ACCEPTED friends (f is their friendships row), AND
+//   * cross-band (adult <-> Protected) pairs additionally need the
+//     Protected user's "I know this person in real life" confirmation
+//     (f.known_confirmed) — the same gate as cross-band messaging.
+// Returns the number to show, or null (show no Call button).
+function visiblePhone(me, other, f) {
+  if (!me || !other || !other.phone) return null;
+  if (other.is_protected) return null;
+  if (!f || f.status !== 'accepted') return null;
+  const crossBand = !!me.is_protected !== !!other.is_protected;
+  if (crossBand && !f.known_confirmed) return null;
+  return other.phone;
+}
 async function getUserById(id) { return await db.prepare('SELECT * FROM users WHERE id = ?').get(id); }
 async function authUser(req) {
   const uid = readSession(req);
@@ -184,13 +223,27 @@ app.get('/api/me', async (req, res) => {
     likesReceived: (await db.prepare('SELECT COUNT(*) c FROM likes l JOIN posts p ON p.id = l.post_id WHERE p.user_id = ?').get(u.id)).c,
     comments: (await db.prepare('SELECT COUNT(*) c FROM comments WHERE user_id = ?').get(u.id)).c,
   };
-  res.json({ user: publicUser(u), stats });
+  res.json({ user: ownUser(u), stats });
 });
+// Profile updates: displayName and/or phone, either one on its own.
+// phone: '' clears it; anything else must survive normalizePhone. The
+// stored number is only ever shared under the visiblePhone rule.
 app.patch('/api/me', requireAuth, async (req, res) => {
-  const name = String((req.body || {}).displayName || '').trim().slice(0, 40);
-  if (name.length < 2) return res.status(400).json({ error: 'Name is too short.' });
-  await db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(cleanText(name), req.user.id);
-  res.json({ user: publicUser(await getUserById(req.user.id)) });
+  const body = req.body || {};
+  const hasName = Object.prototype.hasOwnProperty.call(body, 'displayName');
+  const hasPhone = Object.prototype.hasOwnProperty.call(body, 'phone');
+  if (!hasName && !hasPhone) return res.status(400).json({ error: 'Nothing to update.' });
+  if (hasName) {
+    const name = String(body.displayName || '').trim().slice(0, 40);
+    if (name.length < 2) return res.status(400).json({ error: 'Name is too short.' });
+    await db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(cleanText(name), req.user.id);
+  }
+  if (hasPhone) {
+    const norm = normalizePhone(body.phone);
+    if (norm.error) return res.status(400).json({ error: norm.error });
+    await db.prepare('UPDATE users SET phone = ? WHERE id = ?').run(norm.phone, req.user.id);
+  }
+  res.json({ user: ownUser(await getUserById(req.user.id)) });
 });
 
 // ----- feed -----
@@ -290,7 +343,7 @@ app.get('/api/people', async (req, res) => {
                              FROM users u ORDER BY post_count DESC, u.id ASC`).all();
   const people = [];
   for (const u of rows) {
-    const entry = { ...publicUser(u), postCount: u.post_count, relationship: 'none', friendRequestId: null, crossBand: false, knownConfirmed: false, attestBy: null };
+    const entry = { ...publicUser(u), postCount: u.post_count, relationship: 'none', friendRequestId: null, crossBand: false, knownConfirmed: false, attestBy: null, phone: null };
     if (me) {
       if (u.id === me.id) entry.relationship = 'self';
       else {
@@ -301,7 +354,7 @@ app.get('/api/people', async (req, res) => {
           entry.friendRequestId = f.id;
           entry.knownConfirmed = info.knownConfirmed;
           entry.attestBy = info.attestBy;
-          if (f.status === 'accepted') entry.relationship = 'friends';
+          if (f.status === 'accepted') { entry.relationship = 'friends'; entry.phone = visiblePhone(me, u, f); }
           else entry.relationship = f.requester_id === me.id ? 'pending_out' : 'pending_in';
         }
       }
@@ -427,7 +480,7 @@ app.get('/api/friends', requireAuth, async (req, res) => {
     const other = publicUser(otherRow);
     if (!other) continue;
     const info = pairInfo(f, req.user, otherRow);
-    if (f.status === 'accepted') friends.push({ ...other, online: onlineSockets.has(otherId), crossBand: info.crossBand, knownConfirmed: info.knownConfirmed });
+    if (f.status === 'accepted') friends.push({ ...other, online: onlineSockets.has(otherId), crossBand: info.crossBand, knownConfirmed: info.knownConfirmed, phone: visiblePhone(req.user, otherRow, f) });
     else if (f.addressee_id === meId) incoming.push({ ...other, requestId: f.id, createdAt: f.created_at, ...info });
     else outgoing.push({ ...other, requestId: f.id, createdAt: f.created_at, ...info });
   }
@@ -460,8 +513,9 @@ function messageRow(m, meId) {
 async function totalUnread(userId) {
   return (await db.prepare('SELECT COUNT(*) c FROM messages WHERE recipient_id = ? AND read_at IS NULL').get(userId)).c;
 }
-// The gate every messaging endpoint shares. Returns { other } on success
-// or { status, error } describing the refusal in plain language.
+// The gate every messaging endpoint shares. Returns { other, friendship }
+// on success (the row lets callers apply the phone-sharing rule too) or
+// { status, error } describing the refusal in plain language.
 async function messagingGate(me, otherId) {
   if (!Number.isInteger(otherId) || otherId <= 0) return { status: 400, error: 'Missing userId.' };
   if (otherId === me.id) return { status: 400, error: "You can't message yourself." };
@@ -475,7 +529,7 @@ async function messagingGate(me, otherId) {
   if (crossBand && !f.known_confirmed) {
     return { status: 403, error: 'For safety, messages open between a Protected account and a grown-up only after the Protected account confirms they know them in real life.' };
   }
-  return { other };
+  return { other, friendship: f };
 }
 // A message can carry one PHOTO (no video DMs), with or without a text
 // caption. Photo messages arrive as multipart/form-data (field name
@@ -531,7 +585,9 @@ app.get('/api/messages/:userId', requireAuth, async (req, res) => {
   const rows = await db.prepare(`SELECT * FROM messages
     WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
     ORDER BY id DESC LIMIT 200`).all(req.user.id, gate.other.id, gate.other.id, req.user.id);
-  res.json({ user: publicUser(gate.other), messages: rows.reverse().map((m) => messageRow(m, req.user.id)) });
+  // The thread header's 📞 Call link rides on this user object — under
+  // the same visiblePhone rule as everywhere else.
+  res.json({ user: { ...publicUser(gate.other), phone: visiblePhone(req.user, gate.other, gate.friendship) }, messages: rows.reverse().map((m) => messageRow(m, req.user.id)) });
 });
 app.get('/api/conversations', requireAuth, async (req, res) => {
   const meId = req.user.id;
@@ -544,8 +600,9 @@ app.get('/api/conversations', requireAuth, async (req, res) => {
       WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
       ORDER BY id DESC LIMIT 1`).get(meId, fid, fid, meId);
     const unread = (await db.prepare('SELECT COUNT(*) c FROM messages WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL').get(fid, meId)).c;
+    const fRow = await friendshipBetween(meId, fid);
     conversations.push({
-      user: publicUser(other),
+      user: { ...publicUser(other), phone: visiblePhone(req.user, other, fRow) },
       lastMessage: last ? messageRow(last, meId) : null,
       unread,
     });

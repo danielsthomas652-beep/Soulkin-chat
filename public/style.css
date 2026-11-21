@@ -123,6 +123,9 @@ input,textarea,select{font:inherit}
 .friend-note{font-size:12px; font-weight:700; color:#a41f30; margin-top:2px}
 .warn-note{background:#fdeef0; color:#a41f30; border:1px solid #f5c2c9; border-radius:10px; padding:10px 12px; font-size:14px; margin-top:12px}
 .friend-btns{display:inline-flex; gap:6px; flex:none}
+a.btn{text-decoration:none}
+.btn.call-link{background:#0a9d62}
+.phone-hint{font-size:12px; color:var(--muted); margin:6px 2px 0; text-align:left; line-height:1.4}
 .profile-head{text-align:center; padding:22px 14px}
 .profile-head .nm{font-size:21px; font-weight:800; margin-top:10px}
 .profile-head .sub{color:var(--muted)}
@@ -226,6 +229,7 @@ input,textarea,select{font:inherit}
 #threadView{background:linear-gradient(180deg,#cfdef3 0%,#e3ebf8 34%,#eef2f7 62%,#f9e9ec 100%); z-index:65}
 .thread-top{background:linear-gradient(90deg,var(--navy) 0%,var(--navy2) 80%,#2f5aa8 100%); border-bottom:3px solid var(--red); box-shadow:0 4px 16px rgba(22,48,94,.35)}
 .thread-top .x{margin-left:0; font-size:24px; line-height:1}
+.thread-call{margin-left:auto; background:#0a9d62; color:#fff; padding:9px 15px; border-radius:999px; font-weight:700; font-size:14px; text-decoration:none; white-space:nowrap}
 .thread-body{flex:1; overflow-y:auto; width:100%; max-width:560px; margin:0 auto; padding:14px 12px; display:flex; flex-direction:column; gap:8px}
 .bubble-row{display:flex; flex-direction:column; max-width:78%}
 .bubble-row.mine{align-self:flex-end; align-items:flex-end}

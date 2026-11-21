@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT NOT NULL UNIQUE COLLATE NOCASE,
   pass_hash TEXT NOT NULL,
   is_protected INTEGER NOT NULL DEFAULT 0,
+  phone TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS posts (
@@ -210,6 +211,14 @@ async function initDb() {
   }
   if (!msgCols.some((c) => c.name === 'media_type')) {
     await db.exec('ALTER TABLE messages ADD COLUMN media_type TEXT');
+  }
+  // Migration for databases created before phone dialing: users.phone is
+  // the owner's optional phone number, shared ONLY with accepted friends
+  // so they can tap-to-call (see visiblePhone in server/index.js). A
+  // Protected user's number is stored but never exposed by the API.
+  const userCols = await db.prepare("SELECT name FROM pragma_table_info('users')").all();
+  if (!userCols.some((c) => c.name === 'phone')) {
+    await db.exec('ALTER TABLE users ADD COLUMN phone TEXT');
   }
 }
 
