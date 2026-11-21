@@ -165,12 +165,13 @@ async function postRow(p, meId) {
 // Local mode: files land on disk in uploads/ and are served from /uploads/.
 // Cloud mode (Render's disk is ephemeral, files would vanish): multer keeps
 // the upload in memory instead; the POST /api/posts handler then stores
-// PHOTOS as blobs in the database (media_blobs, served via /media/:id).
-// Video file uploads in cloud mode are NOT stored (see the posts handler) —
-// the post is kept, the file is skipped; catalog videos and https video
-// links are unaffected.
+// the file as a blob in the database (media_blobs, served via /media/:id).
+// Cloud blob caps: photos 5 MB, videos 20 MB (see the posts handler) —
+// the video cap is what makes in-app TikTok-style recordings (kept small
+// by the recorder's bitrate + 60-second limit) persist on the live app.
 const EXT_BY_MIME = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp', 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov' };
 const PHOTO_BLOB_MAX = 5 * 1024 * 1024; // cloud-mode photo cap: 5 MB
+const VIDEO_BLOB_MAX = 20 * 1024 * 1024; // cloud-mode video cap: 20 MB
 const fileFilter = (req, file, cb) => {
   if (file.mimetype.startsWith('image/') || ['video/mp4', 'video/webm', 'video/quicktime'].includes(file.mimetype)) cb(null, true);
   else cb(new Error('That file type is not allowed — pictures and short videos only.'));
@@ -295,18 +296,20 @@ app.post('/api/posts', requireAuth, upload.single('media'), async (req, res) => 
   let mediaUrl = null, mediaType = null;
   if (req.file) {
     if (cloudMode) {
-      // Cloud mode: no durable disk, so photos are stored as DB blobs and
-      // served from /media/:id. Video files are NOT stored in cloud mode —
-      // the post is kept, the file is skipped (catalog videos and https
-      // video links still work; see README "Deploying").
-      if (req.file.mimetype.startsWith('image/')) {
-        if (req.file.size > PHOTO_BLOB_MAX) return res.status(413).json({ error: 'That photo is too big (5 MB max).' });
-        const blobId = crypto.randomBytes(12).toString('hex');
-        await db.prepare('INSERT INTO media_blobs (id, user_id, mime, data) VALUES (?, ?, ?, ?)')
-          .run(blobId, req.user.id, req.file.mimetype, req.file.buffer);
-        mediaUrl = '/media/' + blobId;
-        mediaType = 'image';
+      // Cloud mode: no durable disk, so post media is stored as DB blobs
+      // and served from /media/:id — photos AND videos alike. Caps:
+      // photos 5 MB, videos 20 MB (in-app recordings are compressed to
+      // stay well under the video cap; see the recorder in app.js).
+      const isImage = req.file.mimetype.startsWith('image/');
+      const cap = isImage ? PHOTO_BLOB_MAX : VIDEO_BLOB_MAX;
+      if (req.file.size > cap) {
+        return res.status(413).json({ error: isImage ? 'That photo is too big (5 MB max).' : 'That video is too big (20 MB max) — try a shorter one.' });
       }
+      const blobId = crypto.randomBytes(12).toString('hex');
+      await db.prepare('INSERT INTO media_blobs (id, user_id, mime, data) VALUES (?, ?, ?, ?)')
+        .run(blobId, req.user.id, req.file.mimetype, req.file.buffer);
+      mediaUrl = '/media/' + blobId;
+      mediaType = isImage ? 'image' : 'video';
     } else {
       mediaUrl = '/uploads/' + req.file.filename;
       mediaType = req.file.mimetype.startsWith('image/') ? 'image' : 'video';
@@ -365,9 +368,40 @@ function blobToBuffer(data) {
 app.get('/media/:id', async (req, res) => {
   const row = await db.prepare('SELECT mime, data FROM media_blobs WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found.' });
+  const buf = blobToBuffer(row.data);
   res.setHeader('Content-Type', row.mime);
   res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-  res.send(blobToBuffer(row.data));
+  res.setHeader('Accept-Ranges', 'bytes');
+  // HTTP Range support — phone browsers ask for byte ranges to play and
+  // seek video; without it, recorded videos served from blobs may refuse
+  // to play at all (notably on iOS Safari). A single range is answered
+  // 206 with the exact slice; anything else (no header, a multi-range,
+  // a malformed range) falls back to the plain full 200.
+  const range = req.headers.range;
+  if (range) {
+    const m = /^bytes=(\d*)-(\d*)$/.exec(String(range).trim());
+    if (m && (m[1] !== '' || m[2] !== '')) {
+      let start, end;
+      if (m[1] === '') { // suffix range: the last N bytes
+        const n = parseInt(m[2], 10);
+        start = Math.max(0, buf.length - n);
+        end = buf.length - 1;
+      } else {
+        start = parseInt(m[1], 10);
+        end = m[2] === '' ? buf.length - 1 : Math.min(parseInt(m[2], 10), buf.length - 1);
+      }
+      if (start > end || start >= buf.length) {
+        res.setHeader('Content-Range', `bytes */${buf.length}`);
+        return res.status(416).end();
+      }
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${buf.length}`);
+      res.setHeader('Content-Length', end - start + 1);
+      return res.send(buf.subarray(start, end + 1));
+    }
+  }
+  res.setHeader('Content-Length', buf.length);
+  res.send(buf);
 });
 
 // ----- people -----

@@ -203,14 +203,31 @@
   <div class="camera-stage">
     <video id="camVideo" autoplay playsinline muted></video>
     <p class="camera-hint" id="camHint">Starting your camera…</p>
+    <p class="camera-timer hidden" id="camTimer">● 0:00 / 1:00</p>
+  </div>
+  <div class="camera-mode-row" id="camModeRow">
+    <button class="cam-mode-btn on" id="camModePhoto" type="button">📸 Photo</button>
+    <button class="cam-mode-btn" id="camModeVideo" type="button">🎬 Video</button>
   </div>
   <div class="camera-controls">
     <button class="call-ctl" id="camFlip" type="button">🔄<span>Flip</span></button>
-    <div class="capture-wrap">
+    <div class="capture-wrap" id="camPhotoControls">
       <button class="capture-btn" id="camCapture" type="button" aria-label="Take picture"></button>
       <span class="capture-label">Take picture</span>
     </div>
+    <div class="capture-wrap hidden" id="camVideoControls">
+      <button class="record-btn" id="camRecord" type="button" aria-label="Record video"></button>
+      <button class="stop-btn hidden" id="camStop" type="button" aria-label="Stop recording"></button>
+      <span class="capture-label" id="camRecordLabel">Record</span>
+    </div>
     <span class="camera-spacer"></span>
+  </div>
+  <div id="camPreview" class="camera-preview hidden">
+    <video id="camPreviewVideo" playsinline loop></video>
+    <div class="camera-preview-bar">
+      <button class="btn ghost" id="camRetake" type="button">↩ Retake</button>
+      <button class="btn red" id="camUseVideo" type="button">Use video ✓</button>
+    </div>
   </div>
 </div>
 

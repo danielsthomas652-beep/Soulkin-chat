@@ -428,10 +428,32 @@ $('#editorPost').addEventListener('click', async () => {
  *   'snap' — sends it to that same friend as a DISAPPEARING snap
  *     (sendThreadSnap): they get one look, then the picture is deleted.
  * Leaving the camera screen (capture, ✕, Escape) always stops its
- * tracks; closing without capturing changes nothing. */
+ * tracks; closing without capturing changes nothing.
+ *
+ * VIDEO MODE (TikTok-style recording): the camera screen also has a
+ * Photo / Video toggle — but only for the 'editor' target, because
+ * recording is a post-making feature (thread/snap cameras stay
+ * photo-only and never even show the toggle). Video mode restarts the
+ * stream WITH the microphone and records with MediaRecorder at a low
+ * bitrate (about 1.2 Mbps video + 64 kbps audio, so a take stays
+ * small), capped at CAM_MAX_SECONDS with an on-screen timer and an
+ * auto-stop. Stopping shows a preview of the take: Retake throws it
+ * away, Use video hands it to the Post Editor through the SAME
+ * setEditorFile(file, 'video') path gallery video picks use — from
+ * there the caption + Add music + Post flow is unchanged. Closing the
+ * camera mid-recording discards the take and stops all tracks. */
 let camStream = null;
 let camFacing = 'environment'; // rear camera first — for photographing other people
 let camTarget = 'editor'; // 'editor' | 'thread' | 'snap' — set by openCamera()
+let camMode = 'photo'; // 'photo' | 'video' — video only for the 'editor' target
+let camRecorder = null; // MediaRecorder while a take is being recorded
+let camChunks = []; // recorded pieces of the current take
+let camRecordedBlob = null; // the finished take, waiting on the preview screen
+let camRecordedType = ''; // its real mime type ('video/mp4' | 'video/webm')
+let camPreviewUrl = null; // object URL feeding the preview player
+let camRecTimer = null; // interval driving the timer + the 60s auto-stop
+let camRecStartedAt = 0;
+const CAM_MAX_SECONDS = 60; // TikTok-style short clips; also keeps files small
 
 function cameraErrorMessage(e) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || (e && e.name === 'UnsupportedError')) {
@@ -452,29 +474,167 @@ async function startCameraStream() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     const err = new Error('getUserMedia is not available'); err.name = 'UnsupportedError'; throw err;
   }
-  camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: camFacing }, audio: false });
+  // Video mode needs the microphone too (a TikTok with no sound is no
+  // fun); photo mode stays exactly as before — camera only, no mic.
+  camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: camFacing }, audio: camMode === 'video' });
   const v = $('#camVideo');
   v.srcObject = camStream;
   try { await v.play(); } catch (e) { /* the stream still shows once the browser starts it */ }
-  $('#camHint').textContent = camFacing === 'environment'
-    ? 'Back camera — point it at your picture, then tap the big button 📸'
-    : 'Front camera — tap the big button when you\'re ready 📸';
+  if (camMode === 'video') {
+    $('#camHint').textContent = camFacing === 'environment'
+      ? 'Back camera — tap the red button to record your video 🎬'
+      : 'Front camera — tap the red button when you\'re ready 🎬';
+  } else {
+    $('#camHint').textContent = camFacing === 'environment'
+      ? 'Back camera — point it at your picture, then tap the big button 📸'
+      : 'Front camera — tap the big button when you\'re ready 📸';
+  }
 }
 async function openCamera(target) {
   camTarget = (target === 'thread' || target === 'snap') ? target : 'editor';
+  camMode = 'photo'; // every visit starts in photo mode, like before
+  hideCamPreview();
+  // The Photo / Video toggle only exists for making posts; the thread
+  // and snap cameras stay photo-only, so their toggle is hidden.
+  $('#camModeRow').classList.toggle('hidden', camTarget !== 'editor');
+  renderCamMode();
   $('#cameraView').classList.remove('hidden');
   $('#camHint').textContent = 'Starting your camera…';
   try { await startCameraStream(); }
   catch (e) { closeCamera(); toast(cameraErrorMessage(e)); }
 }
 function closeCamera() {
+  cancelRecording(); // closing mid-recording discards the take
+  hideCamPreview();
   stopCameraStream();
   $('#cameraView').classList.add('hidden');
 }
 async function flipCamera() {
+  if (camRecorder) { toast('Stop recording first, then flip the camera.'); return; }
   camFacing = camFacing === 'environment' ? 'user' : 'environment';
   try { await startCameraStream(); }
   catch (e) { closeCamera(); toast(cameraErrorMessage(e)); }
+}
+/* ---------- camera: photo/video mode toggle ---------- */
+function renderCamMode() {
+  const video = camMode === 'video';
+  $('#camModePhoto').classList.toggle('on', !video);
+  $('#camModeVideo').classList.toggle('on', video);
+  $('#camPhotoControls').classList.toggle('hidden', video);
+  $('#camVideoControls').classList.toggle('hidden', !video);
+  if (!video) $('#camTimer').classList.add('hidden');
+}
+async function setCamMode(mode) {
+  if (camRecorder) return; // never mid-recording
+  const next = mode === 'video' ? 'video' : 'photo';
+  if (next === camMode) { renderCamMode(); return; }
+  camMode = next;
+  renderCamMode();
+  // The stream restarts: video mode adds the microphone, photo mode
+  // drops it again.
+  try { await startCameraStream(); }
+  catch (e) {
+    closeCamera();
+    if (camMode === 'video' && e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
+      toast('Camera and microphone are blocked. Allow them for this site in your browser settings, then try again.');
+    } else {
+      toast(cameraErrorMessage(e));
+    }
+  }
+}
+/* ---------- camera: video recording (MediaRecorder) ---------- */
+function pickRecorderMime() {
+  // mp4 first (plays everywhere, incl. iPhones); webm is the fallback
+  // most Android/Chrome recorders offer.
+  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
+  for (const t of ['video/mp4', 'video/webm']) { if (MediaRecorder.isTypeSupported(t)) return t; }
+  return '';
+}
+function startRecording() {
+  if (!camStream) { toast('The camera is still warming up — give it a second and try again.'); return; }
+  if (typeof MediaRecorder === 'undefined') { toast('This browser can\'t record video here. Try Chrome or Safari on your phone — or add a video from your gallery instead.'); return; }
+  const opts = { videoBitsPerSecond: 1200000, audioBitsPerSecond: 64000 };
+  const mime = pickRecorderMime();
+  if (mime) opts.mimeType = mime;
+  try { camRecorder = new MediaRecorder(camStream, opts); }
+  catch (e) { camRecorder = null; toast('Recording could not start on this browser. You can still add a video from your gallery.'); return; }
+  camChunks = [];
+  camRecorder.ondataavailable = (ev) => { if (ev.data && ev.data.size) camChunks.push(ev.data); };
+  camRecorder.onstop = onRecordingStopped;
+  try { camRecorder.start(250); }
+  catch (e) { camRecorder = null; toast('Recording could not start on this browser. You can still add a video from your gallery.'); return; }
+  camRecStartedAt = Date.now();
+  renderRecordingUI(true);
+  updateCamTimer();
+  camRecTimer = setInterval(() => {
+    updateCamTimer();
+    if ((Date.now() - camRecStartedAt) / 1000 >= CAM_MAX_SECONDS) stopRecording();
+  }, 250);
+}
+function stopRecording() {
+  if (camRecTimer) { clearInterval(camRecTimer); camRecTimer = null; }
+  if (camRecorder && camRecorder.state !== 'inactive') { try { camRecorder.stop(); } catch (e) { /* already stopping */ } }
+}
+function cancelRecording() {
+  if (camRecTimer) { clearInterval(camRecTimer); camRecTimer = null; }
+  if (camRecorder) {
+    camRecorder.onstop = null; // a discarded take never reaches the preview
+    camRecorder.ondataavailable = null;
+    if (camRecorder.state !== 'inactive') { try { camRecorder.stop(); } catch (e) { /* ignore */ } }
+    camRecorder = null;
+  }
+  camChunks = [];
+  renderRecordingUI(false);
+}
+function onRecordingStopped() {
+  renderRecordingUI(false);
+  const rawType = (camRecorder && camRecorder.mimeType) || pickRecorderMime() || 'video/webm';
+  camRecorder = null;
+  const blob = new Blob(camChunks, { type: rawType });
+  camChunks = [];
+  if (!blob.size) { toast('That recording came out empty — try again.'); return; }
+  camRecordedBlob = blob;
+  camRecordedType = rawType.split(';')[0]; // drop any ";codecs=…" suffix
+  showCamPreview();
+}
+function renderRecordingUI(recording) {
+  $('#camRecord').classList.toggle('hidden', recording);
+  $('#camStop').classList.toggle('hidden', !recording);
+  $('#camRecordLabel').textContent = recording ? 'Recording…' : 'Record';
+  $('#camTimer').classList.toggle('hidden', !recording);
+  $('#camFlip').disabled = recording;
+  $('#camModePhoto').disabled = recording;
+  $('#camModeVideo').disabled = recording;
+}
+function updateCamTimer() {
+  const s = Math.min(CAM_MAX_SECONDS, Math.floor((Date.now() - camRecStartedAt) / 1000));
+  $('#camTimer').textContent = `● ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} / 1:00`;
+}
+/* ---------- camera: recording preview (Retake / Use video) ---------- */
+function showCamPreview() {
+  camPreviewUrl = URL.createObjectURL(camRecordedBlob);
+  const pv = $('#camPreviewVideo');
+  pv.src = camPreviewUrl;
+  $('#camPreview').classList.remove('hidden');
+  try { pv.play(); } catch (e) { /* the poster frame still shows */ }
+}
+function hideCamPreview() {
+  const pv = $('#camPreviewVideo');
+  if (pv) { try { pv.pause(); } catch (e) { /* ignore */ } pv.removeAttribute('src'); }
+  if (camPreviewUrl) { URL.revokeObjectURL(camPreviewUrl); camPreviewUrl = null; }
+  const box = $('#camPreview'); if (box) box.classList.add('hidden');
+  camRecordedBlob = null;
+  camRecordedType = '';
+}
+function useRecordedVideo() {
+  if (!camRecordedBlob) return;
+  const isMp4 = camRecordedType.includes('mp4');
+  const file = new File([camRecordedBlob], isMp4 ? 'recorded-video.mp4' : 'recorded-video.webm', { type: isMp4 ? 'video/mp4' : 'video/webm' });
+  hideCamPreview();
+  closeCamera();
+  setEditorFile(file, 'video'); // the same draft state the gallery picker feeds
+  openEditor(false);
+  toast('Got your video! Add music or words, then tap Post 🎬');
 }
 function capturePhoto() {
   const v = $('#camVideo');
@@ -500,6 +660,12 @@ $('#edBtnCamera').addEventListener('click', () => openCamera('editor'));
 $('#camClose').addEventListener('click', closeCamera);
 $('#camFlip').addEventListener('click', flipCamera);
 $('#camCapture').addEventListener('click', capturePhoto);
+$('#camModePhoto').addEventListener('click', () => setCamMode('photo'));
+$('#camModeVideo').addEventListener('click', () => setCamMode('video'));
+$('#camRecord').addEventListener('click', startRecording);
+$('#camStop').addEventListener('click', stopRecording);
+$('#camRetake').addEventListener('click', hideCamPreview);
+$('#camUseVideo').addEventListener('click', useRecordedVideo);
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !$('#cameraView').classList.contains('hidden')) closeCamera();
 });
