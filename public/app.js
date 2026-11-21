@@ -150,13 +150,9 @@ function songForPost(p) { return p.song || null; }
 function postCardHTML(p) {
   const a = p.author || {};
   const badge = a.isProtected ? '<span class="badge">🛡️ Protected</span>' : '';
+  if (p.mediaUrl && p.mediaType === 'video') return videoPostCardHTML(p, a, badge);
   let media = '';
   if (p.mediaUrl && p.mediaType === 'image') media = `<div class="post-media"><img src="${esc(p.mediaUrl)}" alt="photo" loading="lazy"></div>`;
-  else if (p.mediaUrl && p.mediaType === 'video') {
-    const song = songForPost(p);
-    media = `<div class="post-media"><video src="${esc(p.mediaUrl)}" playsinline loop controls preload="metadata" ${song ? 'muted' : ''} data-post-video="${p.id}"></video></div>` +
-      (song ? `<div class="post-song"><span class="pill">🎵 ${esc(song.title)} — ${esc(song.artist)}</span></div><audio data-post-audio="${p.id}" src="${esc(song.src)}" loop preload="none"></audio>` : '');
-  }
   return `<article class="card" id="post-${p.id}">
     <div class="post-head">${avatarHTML(a.displayName, a.username, 'md')}
       <div><div class="nm">${esc(a.displayName)}${badge}</div><div class="sub">@${esc(a.username)} · ${timeAgo(p.createdAt)}</div></div>
@@ -172,15 +168,113 @@ function postCardHTML(p) {
     <div class="comments hidden" id="comments-${p.id}"></div>
   </article>`;
 }
+/* Video posts render as big TikTok-style cards: a tall dark stage
+ * (~84vh, full card width) with the clip letterboxed (object-fit:
+ * contain — never cropped, never distorted) over a blurred copy of
+ * itself, the author + caption overlaid bottom-left, and a vertical
+ * action rail (Like / Comment / Share / Sound) on the right edge.
+ * The rail buttons carry the same data-act hooks as the classic card,
+ * so the existing like/comment/share/report delegation drives them;
+ * data-rail="1" tells the like handler to repaint them icon+count.
+ * Behavior (autoplay on scroll into view, tap to pause/resume, song
+ * sync, the global Sound ON/OFF choice) lives in wirePostMedia. */
+function videoPostCardHTML(p, a, badge) {
+  const song = songForPost(p);
+  return `<article class="card tk-card" id="post-${p.id}">
+    <div class="tk-stage">
+      <video class="tk-bg" src="${esc(p.mediaUrl)}" playsinline loop muted preload="metadata" aria-hidden="true" tabindex="-1"></video>
+      <video class="tk-video" src="${esc(p.mediaUrl)}" playsinline loop muted preload="metadata" data-post-video="${p.id}"></video>
+      <div class="tk-shade"></div>
+      <div class="tk-play-ind"><span>▶</span></div>
+      <button class="tk-report" data-act="report" data-id="${p.id}" type="button" aria-label="Report this post">${ICON.flag}</button>
+      <div class="tk-meta">
+        <div class="tk-author">${avatarHTML(a.displayName, a.username, 'md')}
+          <div><div class="nm">${esc(a.displayName)}${badge}</div><div class="sub">@${esc(a.username)} · ${timeAgo(p.createdAt)}</div></div>
+        </div>
+        ${p.text ? `<p class="tk-caption">${esc(p.text)}</p>` : ''}
+        ${song ? `<div class="tk-song">🎵 ${esc(song.title)} — ${esc(song.artist)}</div>` : ''}
+      </div>
+      <div class="tk-rail">
+        <button class="tk-act ${p.likedByMe ? 'liked' : ''}" data-act="like" data-id="${p.id}" data-rail="1" type="button">${p.likedByMe ? ICON.heartFill : ICON.heart}<span class="cnt">${fmtCount(p.likeCount)}</span></button>
+        <button class="tk-act" data-act="comment" data-id="${p.id}" data-rail="1" type="button">${ICON.comment}<span class="cnt">${fmtCount(p.commentCount)}</span></button>
+        <button class="tk-act" data-act="share" data-id="${p.id}" data-rail="1" type="button">${ICON.share}<span class="cnt">Share</span></button>
+        <button class="tk-act feed-sound-btn ${soundOn ? 'on' : ''}" type="button" aria-label="Turn sound on or off">${soundOn ? '🔊' : '🔇'}</button>
+      </div>
+      ${song ? `<audio data-post-audio="${p.id}" src="${esc(song.src)}" loop preload="none"></audio>` : ''}
+    </div>
+  </article>`;
+}
+/* ---- feed video playback (TikTok-style) ----
+ * One shared IntersectionObserver drives every post video in the
+ * feed (and My Posts, which shares the renderer): a clip autoplays
+ * (muted first, so the browser allows it) once half of it is on
+ * screen and pauses when it scrolls away — which also pauses it
+ * when its view is hidden. Tapping the stage pauses/resumes. A
+ * picked song still plays in sync with its video, exactly like the
+ * Videos tab, but the global Sound ON/OFF choice rules: sound off
+ * mutes everything; sound on plays the song (video stays muted) or,
+ * for song-less clips, the video's own audio. */
+let feedObserver = null;
+function getFeedObserver() {
+  if (feedObserver) return feedObserver;
+  if (!('IntersectionObserver' in window)) return null;
+  feedObserver = new IntersectionObserver((entries) => {
+    entries.forEach((en) => {
+      const v = en.target;
+      if (en.intersectionRatio >= 0.5) playFeedVideo(v);
+      else if (!v.paused) v.pause();
+    });
+  }, { threshold: [0, 0.5] });
+  return feedObserver;
+}
+function applyFeedSound(v) {
+  const stage = v.closest('.tk-stage');
+  const audio = stage ? stage.querySelector(`audio[data-post-audio="${v.dataset.postVideo}"]`) : null;
+  if (!soundOn) { v.muted = true; if (audio) audio.pause(); return; }
+  if (audio) { // a song IS this clip's sound (same rule as the Videos tab)
+    v.muted = true;
+    if (!v.paused) { syncAudio(v, audio); audio.play().catch(() => {}); }
+  } else {
+    v.muted = false; // no song — the clip's own audio, if it has any
+  }
+}
+function applyFeedSounds() { $$('video[data-post-video]').forEach(applyFeedSound); }
+function playFeedVideo(v) {
+  if (!v.paused) { applyFeedSound(v); return; }
+  const p = v.play();
+  if (p && typeof p.catch === 'function') {
+    p.then(() => applyFeedSound(v)).catch(() => { v.muted = true; v.play().catch(() => {}); });
+  }
+}
 function wirePostMedia(container) {
   $$('video[data-post-video]', container).forEach((v) => {
+    if (v.dataset.tkWired) return; // loadFeed re-renders fresh nodes; the editor prepend re-wires the whole list
+    v.dataset.tkWired = '1';
+    const stage = v.closest('.tk-stage');
+    const bg = stage ? stage.querySelector('video.tk-bg') : null;
     const audio = container.querySelector(`audio[data-post-audio="${v.dataset.postVideo}"]`);
-    if (!audio) return;
-    v.addEventListener('play', () => { audio.play().catch(() => {}); });
-    v.addEventListener('pause', () => audio.pause());
-    v.addEventListener('seeked', () => { if (audio.duration) audio.currentTime = v.currentTime % audio.duration; });
+    v.addEventListener('play', () => {
+      if (stage) { stage.classList.add('was-live'); stage.classList.remove('is-paused'); }
+      if (bg && bg.paused) bg.play().catch(() => {});
+      if (audio && soundOn) { syncAudio(v, audio); audio.play().catch(() => {}); }
+    });
+    v.addEventListener('pause', () => {
+      if (stage) stage.classList.add('is-paused');
+      if (bg && !bg.paused) bg.pause();
+      if (audio) audio.pause();
+    });
+    if (audio) v.addEventListener('seeked', () => { if (audio.duration) audio.currentTime = v.currentTime % audio.duration; });
+    if (stage) stage.addEventListener('click', (e) => {
+      if (e.target.closest('button, a')) return; // rail / report / sound buttons have their own jobs
+      if (v.paused) playFeedVideo(v); else v.pause();
+    });
+    const obs = getFeedObserver();
+    if (obs) obs.observe(v);
   });
 }
+/* the rail's sound button drives the same global Sound ON/OFF choice
+ * as the Videos tab pill (setSound is defined with the videos code) */
+document.addEventListener('click', (e) => { if (e.target.closest('.feed-sound-btn')) setSound(!soundOn); });
 async function loadFeed() {
   try {
     const data = await api('/api/posts');
@@ -198,7 +292,12 @@ document.addEventListener('click', async (e) => {
   try {
     if (act === 'like') {
       const r = await api(`/api/posts/${id}/like`, { method: 'POST', body: '{}' });
-      $$(`[data-act="like"][data-id="${id}"]`).forEach((b) => { b.classList.toggle('liked', r.liked); b.innerHTML = `${r.liked ? ICON.heartFill : ICON.heart}<span>Like${r.likeCount ? ' · ' + r.likeCount : ''}</span>`; });
+      $$(`[data-act="like"][data-id="${id}"]`).forEach((b) => {
+        b.classList.toggle('liked', r.liked);
+        b.innerHTML = b.dataset.rail
+          ? `${r.liked ? ICON.heartFill : ICON.heart}<span class="cnt">${fmtCount(r.likeCount)}</span>`
+          : `${r.liked ? ICON.heartFill : ICON.heart}<span>Like${r.likeCount ? ' · ' + r.likeCount : ''}</span>`;
+      });
     } else if (act === 'comment') {
       openCommentsSheet({ kind: 'post', id });
     } else if (act === 'share') {
@@ -502,12 +601,14 @@ function renderSoundPills() {
   const label = soundOn ? '🔊 Sound ON' : '🔇 Sound OFF';
   const pill = $('#soundPill'); pill.textContent = label; pill.classList.toggle('on', soundOn);
   const vp = $('#viewerSound'); vp.textContent = label; vp.classList.toggle('on', soundOn);
+  $$('.feed-sound-btn').forEach((b) => { b.textContent = soundOn ? '🔊' : '🔇'; b.classList.toggle('on', soundOn); });
 }
 function setSound(on) {
   soundOn = on;
   localStorage.setItem('solkin_sound', on ? '1' : '0');
   renderSoundPills();
   applySoundToSlide(currentSlide);
+  applyFeedSounds();
   if (!$('#viewer').classList.contains('hidden')) applyViewerSound();
   toast(on ? 'Sound on 🔊' : 'Sound off 🔇');
 }
