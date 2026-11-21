@@ -8,86 +8,28 @@ function avColor(key) { let h = 0; const s = String(key || '?'); for (let i = 0;
 function initials(name) { const p = String(name || '?').trim().split(/\s+/); return ((p[0] || '?')[0] + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase(); }
 function avatarHTML(name, username, size) { return `<span class="avatar ${size || 'md'}" style="background:${avColor(username || name)}">${esc(initials(name))}</span>`; }
 
-/* ================= build-a-character avatars =================
- * A saved avatar is a compact config of enum keys ({skin, hair,
- * hairColor, mouth, facialHair, outfit, outfitColor, hat, glasses,
- * bg}) validated by the server against the shared whitelist in
- * avatar-parts.js (loaded before this script as the global
- * AvatarParts — the SAME module the server requires). avatarSVG()
- * draws the little character as inline SVG from those tables only:
- * config values are used purely as lookup keys into whitelisted art
- * and color constants, never interpolated into the markup, so a
- * stored avatar can't inject anything into anyone's page.
+/* ================= avatar pictures =================
+ * A saved avatar is a preset portrait id ("p01".."p24") from the
+ * shared list in avatars.js (loaded before this script as the global
+ * AvatarPics — the SAME module the server requires to validate
+ * PATCH /api/me). The portraits are glossy 3D animated-movie style
+ * pictures served as static files from /avatars/<id>.webp; the
+ * build-a-character maker that used to live here was retired by the
+ * owner ("corny", "cheap").
  * userAvatarHTML() is the one face renderer every list uses: the
- * character when the user saved one, otherwise the classic
- * initial-letter circle, exactly as before. */
-function shadeHex(hex, f) {
-  const n = parseInt(String(hex).slice(1), 16);
-  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-  if (f <= 1) { r = Math.round(r * f); g = Math.round(g * f); b = Math.round(b * f); }
-  else { const t = Math.min(1, f - 1); r = Math.round(r + (255 - r) * t); g = Math.round(g + (255 - g) * t); b = Math.round(b + (255 - b) * t); }
-  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
-}
-function fillAvatarTokens(tpl, tokens) {
-  return String(tpl || '').replace(/\{(hc|hd|hl|oc|od|ol|sk|sd|sl)\}/g, (m, k) => tokens[k] || m);
-}
-/* One eye: white, warm iris, pupil, a catchlight dot and a lashed
- * upper line with a tiny flick at the outer corner — the cheapest
- * way to make the little faces feel alive. dir = -1 left, +1 right. */
-function avatarEyeSVG(cx, dir) {
-  return `<ellipse cx="${cx}" cy="40.5" rx="3.2" ry="3.7" fill="#ffffff"/>` +
-    `<circle cx="${cx}" cy="40.9" r="2" fill="#4a3226"/>` +
-    `<circle cx="${cx}" cy="41.1" r="1.05" fill="#221a16"/>` +
-    `<circle cx="${cx - 0.75}" cy="40" r="0.85" fill="#ffffff"/>` +
-    `<path d="M${cx - 3.3} 37.6 Q${cx} 35.9 ${cx + 3.3} 37.6" fill="none" stroke="#3a2a20" stroke-width="1.15" stroke-linecap="round"/>` +
-    `<path d="M${cx + dir * 3.2} 37.8 l${dir * 1.7} -1.1" fill="none" stroke="#3a2a20" stroke-width="1.05" stroke-linecap="round"/>`;
-}
-function avatarSVG(cfg, size) {
-  const P = window.AvatarParts;
-  if (!P) return '';
-  const c = Object.assign({}, P.AVATAR_DEFAULTS, cfg || {});
-  const skin = P.SKIN_TONES[c.skin] || P.SKIN_TONES[P.AVATAR_DEFAULTS.skin];
-  const hairCol = P.HAIR_COLORS[c.hairColor] || P.HAIR_COLORS[P.AVATAR_DEFAULTS.hairColor];
-  const outfitCol = P.OUTFIT_COLORS[c.outfitColor] || P.OUTFIT_COLORS[P.AVATAR_DEFAULTS.outfitColor];
-  const tokens = {
-    hc: hairCol, hd: shadeHex(hairCol, 0.6), hl: shadeHex(hairCol, 1.5),
-    oc: outfitCol, od: shadeHex(outfitCol, 0.66), ol: shadeHex(outfitCol, 1.5),
-    sk: skin, sd: shadeHex(skin, 0.76), sl: shadeHex(skin, 1.14),
-  };
-  const hairArt = P.HAIR_ART[c.hair] || P.HAIR_ART[P.AVATAR_DEFAULTS.hair];
-  const outfitArt = P.OUTFIT_ART[c.outfit] || P.OUTFIT_ART[P.AVATAR_DEFAULTS.outfit];
-  const mouthArt = P.MOUTH_ART[c.mouth] || P.MOUTH_ART[P.AVATAR_DEFAULTS.mouth];
-  const parts = [
-    P.BACKGROUNDS[c.bg] || P.BACKGROUNDS[P.AVATAR_DEFAULTS.bg],
-    fillAvatarTokens(hairArt.back, tokens),
-    fillAvatarTokens(outfitArt.back, tokens),
-    // neck, with the chin's soft shadow resting on it
-    `<rect x="45.5" y="50" width="9" height="17" rx="3.5" fill="${skin}"/>`,
-    `<ellipse cx="50" cy="59.3" rx="5.2" ry="2.3" fill="${tokens.sd}" opacity=".38"/>`,
-    fillAvatarTokens(outfitArt.front, tokens),
-    // ears, with a small inner shadow curve
-    `<circle cx="31.7" cy="41" r="3.9" fill="${skin}"/><circle cx="68.3" cy="41" r="3.9" fill="${skin}"/>`,
-    `<path d="M33.4 39.2 a2.2 2.6 0 0 1 .4 3.4 M66.6 39.2 a2.2 2.6 0 0 0 -.4 3.4" fill="none" stroke="${tokens.sd}" stroke-width="1.1" opacity=".55" stroke-linecap="round"/>`,
-    // head: base, a soft shadow crescent down the right side, a
-    // gentle highlight upper-left, and baked-in rosy cheeks
-    `<circle cx="50" cy="40" r="18" fill="${skin}"/>`,
-    `<path d="M59.2 24.6 A18 18 0 0 1 59.2 55.4 A13.5 17 0 0 0 59.2 24.6 Z" fill="${tokens.sd}" opacity=".15"/>`,
-    `<ellipse cx="41.5" cy="30.5" rx="8.6" ry="5.4" fill="#ffffff" opacity=".10" transform="rotate(-16 41.5 30.5)"/>`,
-    `<ellipse cx="38.3" cy="48.2" rx="3.6" ry="2.1" fill="#ff7d95" opacity=".30"/><ellipse cx="61.7" cy="48.2" rx="3.6" ry="2.1" fill="#ff7d95" opacity=".30"/>`,
-    fillAvatarTokens(P.FACIAL_HAIR_ART[c.facialHair], tokens),
-    avatarEyeSVG(43.3, -1) + avatarEyeSVG(56.7, 1),
-    '<path d="M50 43.9 q1.7 2.6 .2 4.4 q-.7 .8 -2 .7" fill="none" stroke="rgba(0,0,0,.16)" stroke-width="1.4" stroke-linecap="round"/>',
-    mouthArt.brows,
-    mouthArt.mouth,
-    fillAvatarTokens(hairArt.front, tokens),
-    fillAvatarTokens(P.HAT_ART[c.hat], tokens),
-    fillAvatarTokens(P.GLASSES_ART[c.glasses], tokens),
-  ];
-  return `<svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true" focusable="false">${parts.join('')}</svg>`;
+ * portrait <img> filling the round slot when the user picked one,
+ * otherwise the classic initial-letter circle, exactly as before.
+ * The id is checked against the whitelist here too, so anything
+ * that isn't a known id — including an old maker config object —
+ * falls back to the initial circle instead of a broken image. */
+function avatarPicId(user) {
+  if (user && typeof user.avatar === 'string' && window.AvatarPics && window.AvatarPics.includes(user.avatar)) return user.avatar;
+  return null;
 }
 function userAvatarHTML(user, size) {
-  if (user && user.avatar && window.AvatarParts) {
-    return `<span class="avatar av-svg ${size || 'md'}">${avatarSVG(user.avatar, size)}</span>`;
+  const pic = avatarPicId(user);
+  if (pic) {
+    return `<span class="avatar av-pic ${size || 'md'}"><img src="/avatars/${pic}.webp" alt=""></span>`;
   }
   return avatarHTML(user ? user.displayName : '?', user ? user.username : '?', size);
 }
@@ -1870,14 +1812,15 @@ async function loadMap() {
   }
   mapMarkers.forEach((m) => m.remove());
   mapMarkers = pins.map((f) => {
-    // A friend with a saved avatar gets a round character pin with
+    // A friend with a saved avatar gets a round portrait pin with
     // their first name under it; everyone else keeps the classic
-    // Leaflet pin. The SVG comes only from the whitelist renderer.
+    // Leaflet pin. The portrait comes only from the whitelist
+    // renderer (userAvatarHTML).
     const opts = {};
     if (f.user.avatar) {
       opts.icon = L.divIcon({
         className: 'av-pin-wrap',
-        html: `<div class="map-pin">${avatarSVG(f.user.avatar)}<span>${esc(f.user.displayName.split(' ')[0])}</span></div>`,
+        html: `<div class="map-pin">${userAvatarHTML(f.user)}<span>${esc(f.user.displayName.split(' ')[0])}</span></div>`,
         iconSize: [48, 62],
         iconAnchor: [24, 56],
         popupAnchor: [0, -52],
@@ -1909,7 +1852,7 @@ async function loadProfile() {
     const data = await api('/api/me');
     me = data.user;
     $('#profAvatar').innerHTML = userAvatarHTML(me, 'lg');
-    $('#btnMakeAvatar').textContent = me.avatar ? '🎨 Edit my avatar' : '🎨 Make my avatar';
+    $('#btnMakeAvatar').textContent = me.avatar ? '🖼️ Change my avatar' : '🖼️ Pick my avatar';
     $('#profName').innerHTML = esc(me.displayName) + (me.isProtected ? '<span class="badge">🛡️ Protected account</span>' : '');
     $('#profSub').textContent = '@' + me.username;
     $('#stPosts').textContent = data.stats.posts;
@@ -1952,62 +1895,50 @@ $('#btnLogout').addEventListener('click', async () => {
   location.reload();
 });
 
-/* ================= avatar maker =================
- * A full-screen build-a-character creator, opened from the Profile's
- * "🎨 Make my avatar" button. A big live preview sits on top; below
- * it, one chip row of categories (Skin, Hair, Hair color, Face,
- * Beard, Clothes, Color, Hat, Glasses, Backdrop) and a grid of big
- * tappable tiles — every tile is a mini version of YOUR character
- * wearing that one option, so picking is pure looking, no reading.
- * The draft is a plain config object; Save sends it to PATCH /api/me,
- * where the server re-validates it against the same whitelist before
- * storing. Nothing is saved until Save is tapped. */
-let avDraft = null;   // the config being edited
-let avCategory = 'skin';
-function openAvatarMaker() {
-  const P = window.AvatarParts;
-  if (!P || !me) return;
-  avDraft = Object.assign({}, P.AVATAR_DEFAULTS, me.avatar || {});
-  avCategory = 'skin';
+/* ================= avatar gallery =================
+ * A full-screen preset-portrait picker, opened from the Profile's
+ * "🖼️ Pick my avatar" button. A big preview of the current pick
+ * sits on top; below it, a grid of the 24 glossy 3D portraits from
+ * /avatars/ (big tappable tiles, the picked one ringed) plus a
+ * "use my initial" tile that clears the picture. The pick is just
+ * an id string; Save sends it to PATCH /api/me, where the server
+ * re-validates it against the same whitelist before storing.
+ * Nothing is saved until Save is tapped. */
+let avPick = null;   // the id being picked ('p07'), or null = initial circle
+function openAvatarGallery() {
+  if (!me) return;
+  avPick = avatarPicId(me);
   $('#avatarView').classList.remove('hidden');
-  renderAvatarMaker();
+  renderAvatarGallery();
 }
-function closeAvatarMaker() { $('#avatarView').classList.add('hidden'); }
-function renderAvatarMaker() {
-  const P = window.AvatarParts;
-  $('#avPreview').innerHTML = avatarSVG(avDraft);
-  $('#avCats').innerHTML = P.AVATAR_CATEGORIES.map((cat) =>
-    `<button type="button" data-avcat="${cat.key}" class="${cat.key === avCategory ? 'on' : ''}">${esc(cat.label)}</button>`).join('');
-  $$('#avCats [data-avcat]').forEach((b) => b.addEventListener('click', () => { avCategory = b.dataset.avcat; renderAvatarMaker(); }));
-  const cat = P.AVATAR_CATEGORIES.find((x) => x.key === avCategory);
-  $('#avOptions').innerHTML = cat.options.map((opt) => {
-    const trial = Object.assign({}, avDraft, { [avCategory]: opt.key });
-    return `<button type="button" class="av-tile ${avDraft[avCategory] === opt.key ? 'on' : ''}" data-avopt="${opt.key}"><span class="av-tile-art">${avatarSVG(trial)}</span><span class="av-tile-label">${esc(opt.label)}</span></button>`;
-  }).join('');
-  $$('#avOptions [data-avopt]').forEach((b) => b.addEventListener('click', () => { avDraft[avCategory] = b.dataset.avopt; renderAvatarMaker(); }));
+function closeAvatarGallery() { $('#avatarView').classList.add('hidden'); }
+function renderAvatarGallery() {
+  $('#avPreview').innerHTML = avPick
+    ? `<img src="/avatars/${avPick}.webp" alt="">`
+    : avatarHTML(me.displayName, me.username, 'lg');
+  const noneTile = `<button type="button" class="av-tile av-tile-none ${avPick === null ? 'on' : ''}" data-avpic=""><span class="av-none-art">${avatarHTML(me.displayName, me.username, 'md')}</span><span class="av-tile-label">No picture — use my initial</span></button>`;
+  const tiles = (window.AvatarPics || []).map((id) =>
+    `<button type="button" class="av-tile ${avPick === id ? 'on' : ''}" data-avpic="${id}"><img src="/avatars/${id}.webp" alt="" loading="lazy"></button>`).join('');
+  $('#avOptions').innerHTML = noneTile + tiles;
+  $$('#avOptions [data-avpic]').forEach((b) => b.addEventListener('click', () => {
+    avPick = b.dataset.avpic || null;
+    renderAvatarGallery();
+  }));
 }
-$('#btnMakeAvatar').addEventListener('click', openAvatarMaker);
-$('#avClose').addEventListener('click', closeAvatarMaker);
+$('#btnMakeAvatar').addEventListener('click', openAvatarGallery);
+$('#avClose').addEventListener('click', closeAvatarGallery);
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('#avatarView').classList.contains('hidden')) closeAvatarMaker();
-});
-$('#avRandom').addEventListener('click', () => {
-  const P = window.AvatarParts;
-  P.AVATAR_KEYS.forEach((k) => {
-    const opts = P.AVATAR_OPTIONS[k];
-    avDraft[k] = opts[Math.floor(Math.random() * opts.length)];
-  });
-  renderAvatarMaker();
+  if (e.key === 'Escape' && !$('#avatarView').classList.contains('hidden')) closeAvatarGallery();
 });
 $('#avSave').addEventListener('click', async () => {
   const btn = $('#avSave'); btn.disabled = true; btn.textContent = 'Saving…';
   try {
-    const r = await api('/api/me', { method: 'PATCH', body: JSON.stringify({ avatar: avDraft }) });
+    const r = await api('/api/me', { method: 'PATCH', body: JSON.stringify({ avatar: avPick }) });
     me = r.user;
-    closeAvatarMaker();
+    closeAvatarGallery();
     refreshMyFaces();
-    $('#btnMakeAvatar').textContent = '🎨 Edit my avatar';
-    toast('Avatar saved! 🎨');
+    $('#btnMakeAvatar').textContent = me.avatar ? '🖼️ Change my avatar' : '🖼️ Pick my avatar';
+    toast(me.avatar ? 'Avatar saved! 🖼️' : 'Avatar taken off — back to your initial');
   } catch (e) { toast(e.message); }
   finally { btn.disabled = false; btn.textContent = 'Save'; }
 });

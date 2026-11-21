@@ -257,12 +257,14 @@ async function initDb() {
   if (!userCols.some((c) => c.name === 'location_at')) {
     await db.exec('ALTER TABLE users ADD COLUMN location_at TEXT');
   }
-  // Migration for databases created before the avatar maker:
-  // users.avatar holds the owner's build-a-character config as a JSON
-  // string of enum keys (validated against the shared whitelist in
-  // public/avatar-parts.js before every write — see PATCH /api/me).
-  // NULL means "no avatar yet" and the client falls back to the
-  // initial-letter circle, exactly as before avatars existed.
+  // Migration for databases created before avatars:
+  // users.avatar holds the owner's preset portrait id ("p01".."p24",
+  // validated against the shared whitelist in public/avatars.js
+  // before every write — see PATCH /api/me). NULL means "no avatar
+  // yet" and the client falls back to the initial-letter circle,
+  // exactly as before avatars existed. (Rows from the short-lived
+  // build-a-character maker hold a JSON config; those are not valid
+  // ids and read back as "no avatar".)
   if (!userCols.some((c) => c.name === 'avatar')) {
     await db.exec('ALTER TABLE users ADD COLUMN avatar TEXT');
   }

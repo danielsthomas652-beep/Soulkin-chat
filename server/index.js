@@ -9,7 +9,7 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const WebSocket = require('ws');
 const { db, engine, cloudMode, initDb } = require('./db');
-const { sanitizeAvatar } = require('../public/avatar-parts');
+const { sanitizeAvatarId } = require('../public/avatars');
 const { SONGS, songById } = require('./songs');
 const { VIDEOS } = require('./videos');
 
@@ -72,14 +72,17 @@ function clearSessionCookie(res) {
 }
 
 // ---------- helpers ----------
-// A stored avatar is a JSON string of enum keys from the shared
-// whitelist (public/avatar-parts.js). It is re-validated on the way
-// out as well as on the way in, so even a hand-edited database row can
-// only ever surface as a clean config object — or null, which the
-// client renders as the classic initial-letter circle.
+// A stored avatar is a preset portrait id ("p01".."p24") from the
+// shared whitelist (public/avatars.js); the picture itself is the
+// static file /avatars/<id>.webp. It is re-validated on the way out
+// as well as on the way in, so even a hand-edited database row can
+// only ever surface as a clean id — or null, which the client
+// renders as the classic initial-letter circle. Rows written by the
+// retired build-a-character maker hold a JSON config; they are not
+// valid ids, so they read back as null (no avatar), never a crash.
 function parseAvatar(raw) {
   if (!raw) return null;
-  return sanitizeAvatar(raw);
+  return sanitizeAvatarId(raw);
 }
 function publicUser(u) {
   if (!u) return null;
@@ -265,13 +268,14 @@ app.get('/api/me', async (req, res) => {
 // visiblePhone rule. shareLocation must be a real boolean; turning it
 // OFF also wipes the stored fix (lat/lng/location_at) in the same
 // update, so a friend map can never resurrect a stale position.
-// avatar: a build-a-character config object (or null to take the
-// avatar off and go back to the initial-letter circle). Every key is
-// validated against the shared whitelist in public/avatar-parts.js —
-// an unknown part, an unknown key, or an oversized/garbage payload is
-// a 400 and nothing is stored. An avatar is cartoon parts, not a
-// photo, so there is NO extra gate: Protected accounts use it exactly
-// like everyone else.
+// avatar: a preset portrait id from the gallery ("p01".."p24"), or
+// null to take the avatar off and go back to the initial-letter
+// circle. The id is validated against the shared whitelist in
+// public/avatars.js — anything else (an unknown id, an old maker
+// config object, garbage) is a 400 and nothing is stored. An avatar
+// is a preset cartoon portrait, not a personal photo, so there is
+// NO extra gate: Protected accounts use it exactly like everyone
+// else.
 app.patch('/api/me', requireAuth, async (req, res) => {
   const body = req.body || {};
   const hasName = Object.prototype.hasOwnProperty.call(body, 'displayName');
@@ -301,9 +305,9 @@ app.patch('/api/me', requireAuth, async (req, res) => {
     if (body.avatar === null) {
       await db.prepare('UPDATE users SET avatar = NULL WHERE id = ?').run(req.user.id);
     } else {
-      const cfg = sanitizeAvatar(body.avatar);
-      if (!cfg) return res.status(400).json({ error: "That avatar doesn't look right — build it from the parts in the avatar maker and try again." });
-      await db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(JSON.stringify(cfg), req.user.id);
+      const pic = sanitizeAvatarId(body.avatar);
+      if (!pic) return res.status(400).json({ error: "That picture isn't one of the avatar pictures — pick one from the gallery and try again." });
+      await db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(pic, req.user.id);
     }
   }
   res.json({ user: ownUser(await getUserById(req.user.id)) });
