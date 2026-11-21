@@ -8,6 +8,13 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="/style.css">
 <link rel="icon" href="/logo.webp" type="image/webp">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#16305e">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="mLT. chat">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 </head>
 <body>
 
@@ -149,6 +156,8 @@
           <button class="btn" id="btnShareLoc" type="button">Turn on</button>
         </div>
         <p class="phone-hint" id="locHint"></p>
+        <button class="btn block" id="btnInstall" type="button" style="margin-top:12px">📲 Add mLT. chat to my home screen</button>
+        <p class="phone-hint hidden" id="installHint"></p>
         <button class="btn ghost block" id="btnLogout" type="button" style="margin-top:12px">Log out</button>
       </div>
       <div class="view-title"><span class="dot"></span> My posts</div>

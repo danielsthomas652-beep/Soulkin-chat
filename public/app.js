@@ -1723,6 +1723,34 @@ $('#btnLogout').addEventListener('click', async () => {
   location.reload();
 });
 
+/* ================= install as an app (PWA) ================= */
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
+}
+let installPromptEvent = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPromptEvent = e; });
+window.addEventListener('appinstalled', () => {
+  installPromptEvent = null;
+  const b = $('#btnInstall'); if (b) b.classList.add('hidden');
+});
+function runningInstalled() { return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; }
+if (runningInstalled()) { const b = $('#btnInstall'); if (b) b.classList.add('hidden'); }
+$('#btnInstall').addEventListener('click', async () => {
+  if (installPromptEvent) {
+    installPromptEvent.prompt();
+    const choice = await installPromptEvent.userChoice.catch(() => null);
+    installPromptEvent = null;
+    if (choice && choice.outcome === 'accepted') {
+      $('#btnInstall').classList.add('hidden');
+      toast('mLT. chat is on your home screen 🎉');
+    }
+  } else {
+    const hint = $('#installHint');
+    hint.textContent = "On Android: tap ⋮ in Chrome, then 'Add to Home screen'. On iPhone: tap Share, then 'Add to Home Screen'.";
+    hint.classList.remove('hidden');
+  }
+});
+
 /* ================= init ================= */
 (async function init() {
   renderSoundPills();
