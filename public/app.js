@@ -7,6 +7,74 @@ const AV_COLORS = ['#ef476f', '#f78c6b', '#e9a13b', '#06d6a0', '#118ab2', '#7b61
 function avColor(key) { let h = 0; const s = String(key || '?'); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return AV_COLORS[h % AV_COLORS.length]; }
 function initials(name) { const p = String(name || '?').trim().split(/\s+/); return ((p[0] || '?')[0] + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase(); }
 function avatarHTML(name, username, size) { return `<span class="avatar ${size || 'md'}" style="background:${avColor(username || name)}">${esc(initials(name))}</span>`; }
+
+/* ================= build-a-character avatars =================
+ * A saved avatar is a compact config of enum keys ({skin, hair,
+ * hairColor, mouth, facialHair, outfit, outfitColor, hat, glasses,
+ * bg}) validated by the server against the shared whitelist in
+ * avatar-parts.js (loaded before this script as the global
+ * AvatarParts — the SAME module the server requires). avatarSVG()
+ * draws the little character as inline SVG from those tables only:
+ * config values are used purely as lookup keys into whitelisted art
+ * and color constants, never interpolated into the markup, so a
+ * stored avatar can't inject anything into anyone's page.
+ * userAvatarHTML() is the one face renderer every list uses: the
+ * character when the user saved one, otherwise the classic
+ * initial-letter circle, exactly as before. */
+function shadeHex(hex, f) {
+  const n = parseInt(String(hex).slice(1), 16);
+  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  if (f <= 1) { r = Math.round(r * f); g = Math.round(g * f); b = Math.round(b * f); }
+  else { const t = Math.min(1, f - 1); r = Math.round(r + (255 - r) * t); g = Math.round(g + (255 - g) * t); b = Math.round(b + (255 - b) * t); }
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+function fillAvatarTokens(tpl, tokens) {
+  return String(tpl || '').replace(/\{(hc|oc|od|ol|sk)\}/g, (m, k) => tokens[k] || m);
+}
+function avatarSVG(cfg, size) {
+  const P = window.AvatarParts;
+  if (!P) return '';
+  const c = Object.assign({}, P.AVATAR_DEFAULTS, cfg || {});
+  const skin = P.SKIN_TONES[c.skin] || P.SKIN_TONES[P.AVATAR_DEFAULTS.skin];
+  const hairCol = P.HAIR_COLORS[c.hairColor] || P.HAIR_COLORS[P.AVATAR_DEFAULTS.hairColor];
+  const outfitCol = P.OUTFIT_COLORS[c.outfitColor] || P.OUTFIT_COLORS[P.AVATAR_DEFAULTS.outfitColor];
+  const tokens = { hc: hairCol, oc: outfitCol, od: shadeHex(outfitCol, 0.68), ol: shadeHex(outfitCol, 1.5), sk: skin };
+  const hairArt = P.HAIR_ART[c.hair] || P.HAIR_ART[P.AVATAR_DEFAULTS.hair];
+  const outfitArt = P.OUTFIT_ART[c.outfit] || P.OUTFIT_ART[P.AVATAR_DEFAULTS.outfit];
+  const mouthArt = P.MOUTH_ART[c.mouth] || P.MOUTH_ART[P.AVATAR_DEFAULTS.mouth];
+  const parts = [
+    P.BACKGROUNDS[c.bg] || P.BACKGROUNDS[P.AVATAR_DEFAULTS.bg],
+    fillAvatarTokens(hairArt.back, tokens),
+    fillAvatarTokens(outfitArt.back, tokens),
+    fillAvatarTokens(outfitArt.front, tokens),
+    `<rect x="44.5" y="50" width="11" height="15" rx="4" fill="${skin}"/>`,
+    `<circle cx="32.6" cy="42" r="3.6" fill="${skin}"/><circle cx="67.4" cy="42" r="3.6" fill="${skin}"/>`,
+    `<circle cx="50" cy="41" r="17.5" fill="${skin}"/>`,
+    fillAvatarTokens(P.FACIAL_HAIR_ART[c.facialHair], tokens),
+    '<ellipse cx="43.5" cy="41" rx="1.9" ry="2.6" fill="#2a2f38"/><ellipse cx="56.5" cy="41" rx="1.9" ry="2.6" fill="#2a2f38"/>',
+    '<path d="M50 44.5 q1.6 2.4 0 4.2" fill="none" stroke="rgba(0,0,0,.16)" stroke-width="1.4" stroke-linecap="round"/>',
+    mouthArt.brows,
+    mouthArt.mouth,
+    fillAvatarTokens(hairArt.front, tokens),
+    fillAvatarTokens(P.HAT_ART[c.hat], tokens),
+    fillAvatarTokens(P.GLASSES_ART[c.glasses], tokens),
+  ];
+  return `<svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true" focusable="false">${parts.join('')}</svg>`;
+}
+function userAvatarHTML(user, size) {
+  if (user && user.avatar && window.AvatarParts) {
+    return `<span class="avatar av-svg ${size || 'md'}">${avatarSVG(user.avatar, size)}</span>`;
+  }
+  return avatarHTML(user ? user.displayName : '?', user ? user.username : '?', size);
+}
+/* Re-render my own face everywhere it sits (top bar, composer, profile). */
+function refreshMyFaces() {
+  if (!me) return;
+  $('#meAvatar').innerHTML = userAvatarHTML(me, 'sm');
+  $('#composerAvatar').innerHTML = userAvatarHTML(me, 'md');
+  const pa = $('#profAvatar');
+  if (pa) pa.innerHTML = userAvatarHTML(me, 'lg');
+}
 function timeAgo(iso) {
   const t = new Date(String(iso).replace(' ', 'T') + (String(iso).includes('Z') ? '' : 'Z')).getTime();
   const s = Math.max(1, Math.floor((Date.now() - t) / 1000));
@@ -80,6 +148,7 @@ function showView(name) {
   currentView = name;
   ['feed', 'videos', 'people', 'friends', 'chat', 'map', 'profile'].forEach((v) => $('#view-' + v).classList.toggle('hidden', v !== name));
   $$('.sidenav button').forEach((b) => b.classList.toggle('on', b.dataset.nav === name));
+  if (name !== 'videos') closeVideoDrawer(); // the controls drawer belongs to the Videos view only
   if (name === 'videos') { ensureVideos(); resumeCurrentSlide(); }
   else pauseAllSlides();
   if (name === 'people') loadPeople();
@@ -102,7 +171,7 @@ $$('.sidenav button').forEach((b) => b.addEventListener('click', () => showView(
  * vertical scrolling never triggers it. */
 const TAB_ORDER = ['feed', 'videos', 'people', 'friends', 'chat', 'map', 'profile'];
 function anyOverlayOpen() {
-  return ['#viewer', '#callView', '#postEditor', '#cameraView', '#threadView', '#snapView', '#sheet', '#callPopup', '#knowConfirm'].some((s) => !$(s).classList.contains('hidden'));
+  return ['#viewer', '#callView', '#postEditor', '#cameraView', '#threadView', '#snapView', '#avatarView', '#sheet', '#callPopup', '#knowConfirm'].some((s) => !$(s).classList.contains('hidden'));
 }
 function insideHScroller(el) {
   while (el && el !== document.body) {
@@ -135,9 +204,9 @@ document.addEventListener('touchend', (e) => {
 function enterApp() {
   $('#authView').classList.add('hidden');
   $('#appView').classList.remove('hidden');
-  $('#meAvatar').innerHTML = avatarHTML(me.displayName, me.username, 'sm');
+  $('#meAvatar').innerHTML = userAvatarHTML(me, 'sm');
   $('#meName').textContent = me.displayName.split(' ')[0];
-  $('#composerAvatar').innerHTML = avatarHTML(me.displayName, me.username, 'md');
+  $('#composerAvatar').innerHTML = userAvatarHTML(me, 'md');
   loadFeed();
   showView('feed');
   connectWS();
@@ -154,7 +223,7 @@ function postCardHTML(p) {
   let media = '';
   if (p.mediaUrl && p.mediaType === 'image') media = `<div class="post-media"><img src="${esc(p.mediaUrl)}" alt="photo" loading="lazy"></div>`;
   return `<article class="card" id="post-${p.id}">
-    <div class="post-head">${avatarHTML(a.displayName, a.username, 'md')}
+    <div class="post-head">${userAvatarHTML(a, 'md')}
       <div><div class="nm">${esc(a.displayName)}${badge}</div><div class="sub">@${esc(a.username)} · ${timeAgo(p.createdAt)}</div></div>
     </div>
     ${p.text ? `<p class="post-text">${esc(p.text)}</p>` : ''}
@@ -188,7 +257,7 @@ function videoPostCardHTML(p, a, badge) {
       <div class="tk-play-ind"><span>▶</span></div>
       <button class="tk-report" data-act="report" data-id="${p.id}" type="button" aria-label="Report this post">${ICON.flag}</button>
       <div class="tk-meta">
-        <div class="tk-author">${avatarHTML(a.displayName, a.username, 'md')}
+        <div class="tk-author">${userAvatarHTML(a, 'md')}
           <div><div class="nm">${esc(a.displayName)}${badge}</div><div class="sub">@${esc(a.username)} · ${timeAgo(p.createdAt)}</div></div>
         </div>
         ${p.text ? `<p class="tk-caption">${esc(p.text)}</p>` : ''}
@@ -697,25 +766,151 @@ function clipSong(v) {
   if (override && songsCache) { const s = songsCache.find((x) => x.id === override); if (s) return s; }
   return v.song || null;
 }
+/* A slide is now ALL stage: the video fills the whole slide (full
+ * width, the pager's full height) with nothing sharing it — the old
+ * side control column is gone. Only a slim author + caption line is
+ * overlaid bottom-left, TikTok-style. Every control (Like, Comment,
+ * Share, Song, Sound, Follow) lives in the slide-out drawer docked to
+ * the right edge — see renderVideoDrawer below. */
 function slideHTML(v, i) {
   const song = clipSong(v);
   return `<div class="slide" data-slide="${i}">
     <div class="vid">
       <video src="${esc(v.src)}" playsinline loop muted preload="metadata" data-vid="${v.id}"></video>
       ${song ? `<audio data-clip-audio="${v.id}" src="${esc(song.src)}" loop preload="none"></audio>` : ''}
-      <div class="cap"><span class="cat">${esc(v.cat)}</span><br>${esc(v.caption)}</div>
-    </div>
-    <div class="side-col">
-      <div class="who">${avatarHTML(v.creator, v.creator, 'md')}<span class="nm">${esc(v.creator.split(' ')[0])}</span>
-      <button class="follow-btn ${v.following ? 'following' : ''}" data-vfollow="${v.id}" type="button">${v.following ? 'Following' : 'Follow'}</button></div>
-      <button class="side-act ${v.likedByMe ? 'liked' : ''}" data-vlike="${v.id}" type="button">${v.likedByMe ? ICON.heartFill : ICON.heart}<span class="cnt">${fmtCount(v.likeCount)}</span></button>
-      <button class="side-act" data-vcomment="${v.id}" type="button">${ICON.comment}<span class="cnt">${v.commentCount || ''}</span></button>
-      <button class="side-act" data-vmusic="${v.id}" type="button">${ICON.note}<span class="cnt">${song ? esc(shortTitle(song.title)) : 'Add'}</span></button>
+      <div class="cap"><span class="who-line">${esc(v.creator.split(' ')[0])}</span> <span class="cat">${esc(v.cat)}</span><br>${esc(v.caption)}</div>
     </div>
   </div>`;
 }
 function fmtCount(n) { return n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K' : String(n || 0); }
 function shortTitle(t) { return t.length > 9 ? t.slice(0, 8) + '…' : t; }
+
+/* ================= videos: slide-out controls drawer =================
+ * All the Videos controls live in ONE panel docked to the right edge
+ * of the screen, hidden by default so the playing video stays big.
+ * It is per-view, not per-slide: a single shared panel whose buttons
+ * are re-bound to the current video every time it opens and every
+ * time the slide changes (renderVideoDrawer), and it closes whenever
+ * the slide changes. Ways in: tap the "‹ Controls" edge tab, or swipe
+ * left starting from the right-edge strip of the video. Ways out:
+ * swipe right anywhere, swipe on the pager (an open panel never traps
+ * the pager — the first swipe closes it instead of paging), tap the
+ * video, tap the edge tab again, or change slides. The buttons carry
+ * the same data-vlike / data-vfollow / data-vcomment / data-vmusic
+ * hooks the old side column used, plus data-vshare / data-vsound, and
+ * are handled by the drawer click listener below — same APIs, same
+ * behavior. */
+function renderVideoDrawer() {
+  const drawer = $('#vdrawer');
+  if (!drawer) return;
+  const v = videosCache[currentSlide];
+  if (!v) { drawer.innerHTML = ''; return; }
+  const song = clipSong(v);
+  drawer.innerHTML = `
+    <div class="vd-who">${userAvatarHTML({ displayName: v.creator, username: v.creator, avatar: null }, 'md')}<span class="nm">${esc(v.creator.split(' ')[0])}</span>
+      <button class="follow-btn ${v.following ? 'following' : ''}" data-vfollow="${v.id}" type="button">${v.following ? 'Following' : 'Follow'}</button></div>
+    <button class="vd-act ${v.likedByMe ? 'liked' : ''}" data-vlike="${v.id}" type="button">${v.likedByMe ? ICON.heartFill : ICON.heart}<span class="cnt">${fmtCount(v.likeCount)}</span><span class="lbl">Like</span></button>
+    <button class="vd-act" data-vcomment="${v.id}" type="button">${ICON.comment}<span class="cnt">${v.commentCount || ''}</span><span class="lbl">Comment</span></button>
+    <button class="vd-act" data-vshare="${v.id}" type="button">${ICON.share}<span class="cnt">&nbsp;</span><span class="lbl">Share</span></button>
+    <div class="vd-song">${song ? '🎵 ' + esc(song.title) + '<br>' + esc(song.artist) : 'No song on this one'}</div>
+    <button class="vd-act" data-vmusic="${v.id}" type="button">${ICON.note}<span class="cnt">${song ? esc(shortTitle(song.title)) : 'Add'}</span><span class="lbl">Song</span></button>
+    <button class="vd-act" data-vsound="1" type="button"><span class="vd-emoji">${soundOn ? '🔊' : '🔇'}</span><span class="cnt">&nbsp;</span><span class="lbl">${soundOn ? 'Sound on' : 'Sound off'}</span></button>`;
+}
+function videoDrawerOpen() { const d = $('#vdrawer'); return !!d && d.classList.contains('open'); }
+function openVideoDrawer() {
+  renderVideoDrawer(); // always bound to the video on screen right now
+  const d = $('#vdrawer'); if (!d) return;
+  d.classList.add('open');
+  d.setAttribute('aria-hidden', 'false');
+  $('#vdrawerTab').classList.add('tucked');
+}
+function closeVideoDrawer() {
+  const d = $('#vdrawer'); if (!d) return;
+  d.classList.remove('open');
+  d.setAttribute('aria-hidden', 'true');
+  const tab = $('#vdrawerTab'); if (tab) tab.classList.remove('tucked');
+}
+$('#vdrawerTab').addEventListener('click', () => { if (videoDrawerOpen()) closeVideoDrawer(); else openVideoDrawer(); });
+/* the drawer's buttons — the same actions the slides used to carry */
+$('#vdrawer').addEventListener('click', async (e) => {
+  const like = e.target.closest('[data-vlike]');
+  const follow = e.target.closest('[data-vfollow]');
+  const comment = e.target.closest('[data-vcomment]');
+  const music = e.target.closest('[data-vmusic]');
+  const share = e.target.closest('[data-vshare]');
+  const sound = e.target.closest('[data-vsound]');
+  try {
+    if (like) {
+      const id = like.dataset.vlike;
+      const r = await api(`/api/videos/${id}/like`, { method: 'POST', body: '{}' });
+      const v = videosCache.find((x) => x.id === id); if (v) { v.likedByMe = r.liked; v.likeCount = r.likeCount; }
+      renderVideoDrawer();
+    } else if (follow) {
+      const id = follow.dataset.vfollow;
+      const r = await api(`/api/videos/${id}/follow`, { method: 'POST', body: '{}' });
+      videosCache.forEach((v) => { if (v.creator === r.creator) v.following = r.following; });
+      renderVideoDrawer();
+      toast(r.following ? 'Following ' + r.creator + ' ⭐' : 'Unfollowed');
+    } else if (comment) {
+      openCommentsSheet({ kind: 'video', id: comment.dataset.vcomment });
+    } else if (music) {
+      openMusicPicker({ type: 'video', id: music.dataset.vmusic });
+    } else if (share) {
+      const link = location.origin + '/#video-' + share.dataset.vshare;
+      try { await navigator.clipboard.writeText(link); toast('Link copied — send it to a friend! 🔗'); }
+      catch (ex) { window.prompt('Copy this link:', link); }
+    } else if (sound) {
+      setSound(!soundOn); // renderSoundPills repaints the drawer too
+    }
+  } catch (ex) { toast(ex.message); }
+});
+/* a rightward swipe on the panel itself tucks it away */
+let vdPanelTouch = null;
+$('#vdrawer').addEventListener('touchstart', (e) => {
+  vdPanelTouch = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+}, { passive: true });
+$('#vdrawer').addEventListener('touchend', (e) => {
+  if (!vdPanelTouch) return;
+  const dx = e.changedTouches[0].clientX - vdPanelTouch.x;
+  const dy = e.changedTouches[0].clientY - vdPanelTouch.y;
+  vdPanelTouch = null;
+  if (dx > 36 && Math.abs(dx) > Math.abs(dy) * 1.4) closeVideoDrawer();
+}, { passive: true });
+/* Edge gestures on the pager. The pager's own sideways scrolling is
+ * untouched for ordinary swipes — this layer only watches for (a) a
+ * leftward swipe that STARTS in the ~24px strip at the video's right
+ * edge, which pulls the drawer out instead of paging (touchmove is
+ * preventDefaulted so the pager doesn't also scroll), and (b) any
+ * clear horizontal swipe while the drawer is open, which closes the
+ * drawer instead of paging — the open panel never traps the pager. */
+let vdTouch = null;
+$('#pager').addEventListener('touchstart', (e) => {
+  if (e.touches.length !== 1) { vdTouch = null; return; }
+  const t = e.touches[0];
+  const vid = $('#pager').querySelector(`.slide[data-slide="${currentSlide}"] video`) || $('#pager').querySelector('video');
+  const rect = vid ? vid.getBoundingClientRect() : $('#pager').getBoundingClientRect();
+  vdTouch = {
+    x: t.clientX, y: t.clientY,
+    edge: t.clientX >= rect.right - 24 && t.clientX <= rect.right + 4 && t.clientY >= rect.top && t.clientY <= rect.bottom,
+  };
+}, { passive: true });
+$('#pager').addEventListener('touchmove', (e) => {
+  if (!vdTouch || e.touches.length !== 1) return;
+  const dx = e.touches[0].clientX - vdTouch.x;
+  const dy = e.touches[0].clientY - vdTouch.y;
+  if (Math.abs(dx) < Math.abs(dy) * 1.4) return; // mostly vertical — not our gesture
+  if (videoDrawerOpen()) { if (Math.abs(dx) > 12) e.preventDefault(); return; }
+  if (vdTouch.edge && dx < -12) e.preventDefault(); // hold the pager still; the drawer is coming
+}, { passive: false });
+$('#pager').addEventListener('touchend', (e) => {
+  if (!vdTouch) return;
+  const start = vdTouch; vdTouch = null;
+  const dx = e.changedTouches[0].clientX - start.x;
+  const dy = e.changedTouches[0].clientY - start.y;
+  if (Math.abs(dx) < 30 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+  if (videoDrawerOpen()) { closeVideoDrawer(); return; } // first swipe closes the panel, never pages
+  if (start.edge && dx < 0) openVideoDrawer();
+});
 
 async function ensureVideos() {
   if (videosLoaded) return;
@@ -770,7 +965,7 @@ function resumeCurrentSlide() { if (videosLoaded && !$('#view-videos').classList
 function setSlide(i, scroll) {
   const n = videosCache.length; if (!n) return;
   i = Math.max(0, Math.min(n - 1, i));
-  if (i !== currentSlide) pauseSlide(currentSlide);
+  if (i !== currentSlide) { pauseSlide(currentSlide); closeVideoDrawer(); } // the drawer never follows to another video
   currentSlide = i;
   if (scroll !== false) { const pager = $('#pager'); pager.scrollTo({ left: i * pager.clientWidth, behavior: 'smooth' }); }
   updatePagerUI();
@@ -787,6 +982,7 @@ function renderSoundPills() {
   const pill = $('#soundPill'); pill.textContent = label; pill.classList.toggle('on', soundOn);
   const vp = $('#viewerSound'); vp.textContent = label; vp.classList.toggle('on', soundOn);
   $$('.feed-sound-btn').forEach((b) => { b.textContent = soundOn ? '🔊' : '🔇'; b.classList.toggle('on', soundOn); });
+  if (videosCache.length) renderVideoDrawer(); // the drawer's Sound button + counts stay in sync
 }
 function setSound(on) {
   soundOn = on;
@@ -807,39 +1003,17 @@ $('#pager').addEventListener('scroll', () => {
   scrollTick = setTimeout(() => {
     const pager = $('#pager');
     const i = Math.round(pager.scrollLeft / pager.clientWidth);
-    if (i !== currentSlide && videosCache[i]) { pauseSlide(currentSlide); currentSlide = i; updatePagerUI(); playSlide(i); }
+    if (i !== currentSlide && videosCache[i]) { pauseSlide(currentSlide); closeVideoDrawer(); currentSlide = i; updatePagerUI(); playSlide(i); }
   }, 90);
 });
-/* tap a slide video -> full-screen viewer; side-column actions */
-$('#pager').addEventListener('click', async (e) => {
+/* tap a slide video -> full-screen viewer; with the controls drawer
+ * open, a tap tucks the drawer away instead */
+$('#pager').addEventListener('click', (e) => {
   const vid = e.target.closest('video[data-vid]');
-  if (vid) { openViewer(currentSlide); return; }
-  const like = e.target.closest('[data-vlike]');
-  const follow = e.target.closest('[data-vfollow]');
-  const comment = e.target.closest('[data-vcomment]');
-  const music = e.target.closest('[data-vmusic]');
-  try {
-    if (like) {
-      const id = like.dataset.vlike;
-      const r = await api(`/api/videos/${id}/like`, { method: 'POST', body: '{}' });
-      const v = videosCache.find((x) => x.id === id); if (v) { v.likedByMe = r.liked; v.likeCount = r.likeCount; }
-      like.classList.toggle('liked', r.liked);
-      like.innerHTML = `${r.liked ? ICON.heartFill : ICON.heart}<span class="cnt">${fmtCount(r.likeCount)}</span>`;
-    } else if (follow) {
-      const id = follow.dataset.vfollow;
-      const r = await api(`/api/videos/${id}/follow`, { method: 'POST', body: '{}' });
-      videosCache.forEach((v) => { if (v.creator === r.creator) v.following = r.following; });
-      $$(`[data-vfollow]`).forEach((b) => {
-        const v = videosCache.find((x) => x.id === b.dataset.vfollow);
-        if (v && v.creator === r.creator) { b.classList.toggle('following', r.following); b.textContent = r.following ? 'Following' : 'Follow'; }
-      });
-      toast(r.following ? 'Following ' + r.creator + ' ⭐' : 'Unfollowed');
-    } else if (comment) {
-      openCommentsSheet({ kind: 'video', id: comment.dataset.vcomment });
-    } else if (music) {
-      openMusicPicker({ type: 'video', id: music.dataset.vmusic });
-    }
-  } catch (ex) { toast(ex.message); }
+  if (vid) {
+    if (videoDrawerOpen()) { closeVideoDrawer(); return; }
+    openViewer(currentSlide);
+  }
 });
 
 /* ================= full-screen viewer ================= */
@@ -847,6 +1021,7 @@ let viewerIdx = 0;
 function openViewer(i) {
   viewerIdx = i;
   pauseAllSlides();
+  closeVideoDrawer();
   $('#viewer').classList.remove('hidden');
   loadViewerClip();
 }
@@ -937,13 +1112,14 @@ async function openCommentsSheet({ kind, id }) {
 }
 function commentHTML(c) {
   const a = c.author || {};
-  return `<div class="comment">${avatarHTML(a.displayName, a.username, 'sm')}<div class="bubble"><b>${esc(a.displayName)}</b> ${esc(c.text)}<br><span style="color:var(--muted); font-size:12px">${timeAgo(c.createdAt)}</span></div></div>`;
+  return `<div class="comment">${userAvatarHTML(a, 'sm')}<div class="bubble"><b>${esc(a.displayName)}</b> ${esc(c.text)}<br><span style="color:var(--muted); font-size:12px">${timeAgo(c.createdAt)}</span></div></div>`;
 }
 function renderPagerSoft() {
-  // refresh side-column counts without losing scroll position
+  // refresh the slides + drawer counts without losing scroll position
   const pager = $('#pager'); const left = pager.scrollLeft;
   pager.innerHTML = videosCache.map(slideHTML).join('');
   pager.scrollLeft = left;
+  renderVideoDrawer();
   playSlide(currentSlide);
 }
 function openReportSheet(postId) {
@@ -1017,7 +1193,7 @@ function personRowHTML(p, actionHTML) {
   const dot = typeof p.online === 'boolean' ? `<span class="online-dot ${friendOnline(p) ? 'on' : ''}" data-dot-for="${p.id}" title="${friendOnline(p) ? 'Online now' : 'Offline'}"></span>` : '';
   // An adult receiving a request from a Protected account gets a plain note.
   const note = (p.relationship === 'pending_in' && p.crossBand && p.isProtected) ? '<div class="friend-note">Protected account (under 18)</div>' : '';
-  return `<div class="card person">${avatarHTML(p.displayName, p.username, 'md')}
+  return `<div class="card person">${userAvatarHTML(p, 'md')}
     <div class="grow"><div class="nm">${dot}${esc(p.displayName)}${p.isProtected ? '<span class="badge">🛡️ Protected</span>' : ''}</div><div class="sub">@${esc(p.username)}${posts}</div>${note}</div>
     ${actionHTML || ''}</div>`;
 }
@@ -1147,7 +1323,7 @@ function convoRowHTML(c) {
   const preview = last ? (last.mine ? 'You: ' : '') + (last.isSnap ? (last.snapOpened ? '📸 Flash opened' : '📸 Flash') : (last.text || (last.mediaUrl ? '📷 Photo' : ''))) : 'Say hi! 👋';
   const when = last ? timeAgo(last.createdAt) : '';
   const pill = c.unread ? `<span class="unread-pill">${c.unread > 99 ? '99+' : c.unread}</span>` : '';
-  return `<div class="card person convo" data-convo="${u.id}" data-msgname="${esc(u.displayName)}" data-msguser="${esc(u.username)}">${avatarHTML(u.displayName, u.username, 'md')}
+  return `<div class="card person convo" data-convo="${u.id}" data-msgname="${esc(u.displayName)}" data-msguser="${esc(u.username)}">${userAvatarHTML(u, 'md')}
     <div class="grow"><div class="nm">${esc(u.displayName)}${u.isProtected ? '<span class="badge">🛡️ Protected</span>' : ''}</div><div class="sub preview">${esc(preview)}</div></div>
     <span class="convo-side"><span class="sub">${esc(when)}</span>${pill}</span></div>`;
 }
@@ -1178,7 +1354,7 @@ function bubbleHTML(m) {
 function scrollThread() { const b = $('#threadBody'); b.scrollTop = b.scrollHeight; }
 async function openThread(user) {
   chatPeer = user;
-  $('#threadAvatar').innerHTML = avatarHTML(user.displayName, user.username, 'sm');
+  $('#threadAvatar').innerHTML = userAvatarHTML(user, 'sm');
   $('#threadName').textContent = user.displayName;
   const callLink = $('#threadCall'); // 📞 Call — shown only when the server shared a number
   callLink.classList.add('hidden');
@@ -1188,6 +1364,7 @@ async function openThread(user) {
   try {
     const data = await api('/api/messages/' + user.id);
     if (!chatPeer || chatPeer.id !== user.id) return; // closed or switched while loading
+    if (data.user) $('#threadAvatar').innerHTML = userAvatarHTML(data.user, 'sm'); // the full record carries their avatar
     if (data.user && data.user.phone) { callLink.href = 'tel:' + data.user.phone; callLink.classList.remove('hidden'); }
     $('#threadBody').innerHTML = data.messages.length
       ? data.messages.map(bubbleHTML).join('')
@@ -1467,7 +1644,7 @@ function showIncomingCall(m) {
   if (activeCall || pendingCall) return; // the server keeps us to one call; ignore anything extra
   pendingCall = { callId: m.callId, from: m.from };
   pendingOffer = null;
-  $('#callFromAvatar').innerHTML = avatarHTML(m.from.displayName, m.from.username, 'lg');
+  $('#callFromAvatar').innerHTML = userAvatarHTML(m.from, 'lg');
   $('#callFromName').textContent = m.from.displayName;
   $('#callPopup').classList.remove('hidden');
 }
@@ -1655,8 +1832,23 @@ async function loadMap() {
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }).addTo(leafletMap);
   }
   mapMarkers.forEach((m) => m.remove());
-  mapMarkers = pins.map((f) => L.marker([f.lat, f.lng]).addTo(leafletMap)
-    .bindPopup('<b>' + esc(f.user.displayName) + '</b><br>Updated ' + updatedLabel(f.updatedAt)));
+  mapMarkers = pins.map((f) => {
+    // A friend with a saved avatar gets a round character pin with
+    // their first name under it; everyone else keeps the classic
+    // Leaflet pin. The SVG comes only from the whitelist renderer.
+    const opts = {};
+    if (f.user.avatar) {
+      opts.icon = L.divIcon({
+        className: 'av-pin-wrap',
+        html: `<div class="map-pin">${avatarSVG(f.user.avatar)}<span>${esc(f.user.displayName.split(' ')[0])}</span></div>`,
+        iconSize: [48, 62],
+        iconAnchor: [24, 56],
+        popupAnchor: [0, -52],
+      });
+    }
+    return L.marker([f.lat, f.lng], opts).addTo(leafletMap)
+      .bindPopup('<b>' + esc(f.user.displayName) + '</b><br>Updated ' + updatedLabel(f.updatedAt));
+  });
   if (pins.length) {
     leafletMap.fitBounds(L.latLngBounds(pins.map((f) => [f.lat, f.lng])), { padding: [30, 30], maxZoom: 13 });
   } else if (navigator.geolocation) {
@@ -1679,7 +1871,8 @@ async function loadProfile() {
   try {
     const data = await api('/api/me');
     me = data.user;
-    $('#profAvatar').innerHTML = avatarHTML(me.displayName, me.username, 'lg');
+    $('#profAvatar').innerHTML = userAvatarHTML(me, 'lg');
+    $('#btnMakeAvatar').textContent = me.avatar ? '🎨 Edit my avatar' : '🎨 Make my avatar';
     $('#profName').innerHTML = esc(me.displayName) + (me.isProtected ? '<span class="badge">🛡️ Protected account</span>' : '');
     $('#profSub').textContent = '@' + me.username;
     $('#stPosts').textContent = data.stats.posts;
@@ -1704,8 +1897,7 @@ $('#btnSaveName').addEventListener('click', async () => {
     const r = await api('/api/me', { method: 'PATCH', body: JSON.stringify({ displayName: name }) });
     me = r.user; $('#editName').value = '';
     $('#meName').textContent = me.displayName.split(' ')[0];
-    $('#meAvatar').innerHTML = avatarHTML(me.displayName, me.username, 'sm');
-    $('#composerAvatar').innerHTML = avatarHTML(me.displayName, me.username, 'md');
+    refreshMyFaces();
     loadProfile(); loadFeed();
     toast('Name saved ✅');
   } catch (e) { toast(e.message); }
@@ -1721,6 +1913,66 @@ $('#btnSavePhone').addEventListener('click', async () => {
 $('#btnLogout').addEventListener('click', async () => {
   await api('/api/logout', { method: 'POST', body: '{}' }).catch(() => {});
   location.reload();
+});
+
+/* ================= avatar maker =================
+ * A full-screen build-a-character creator, opened from the Profile's
+ * "🎨 Make my avatar" button. A big live preview sits on top; below
+ * it, one chip row of categories (Skin, Hair, Hair color, Face,
+ * Beard, Clothes, Color, Hat, Glasses, Backdrop) and a grid of big
+ * tappable tiles — every tile is a mini version of YOUR character
+ * wearing that one option, so picking is pure looking, no reading.
+ * The draft is a plain config object; Save sends it to PATCH /api/me,
+ * where the server re-validates it against the same whitelist before
+ * storing. Nothing is saved until Save is tapped. */
+let avDraft = null;   // the config being edited
+let avCategory = 'skin';
+function openAvatarMaker() {
+  const P = window.AvatarParts;
+  if (!P || !me) return;
+  avDraft = Object.assign({}, P.AVATAR_DEFAULTS, me.avatar || {});
+  avCategory = 'skin';
+  $('#avatarView').classList.remove('hidden');
+  renderAvatarMaker();
+}
+function closeAvatarMaker() { $('#avatarView').classList.add('hidden'); }
+function renderAvatarMaker() {
+  const P = window.AvatarParts;
+  $('#avPreview').innerHTML = avatarSVG(avDraft);
+  $('#avCats').innerHTML = P.AVATAR_CATEGORIES.map((cat) =>
+    `<button type="button" data-avcat="${cat.key}" class="${cat.key === avCategory ? 'on' : ''}">${esc(cat.label)}</button>`).join('');
+  $$('#avCats [data-avcat]').forEach((b) => b.addEventListener('click', () => { avCategory = b.dataset.avcat; renderAvatarMaker(); }));
+  const cat = P.AVATAR_CATEGORIES.find((x) => x.key === avCategory);
+  $('#avOptions').innerHTML = cat.options.map((opt) => {
+    const trial = Object.assign({}, avDraft, { [avCategory]: opt.key });
+    return `<button type="button" class="av-tile ${avDraft[avCategory] === opt.key ? 'on' : ''}" data-avopt="${opt.key}"><span class="av-tile-art">${avatarSVG(trial)}</span><span class="av-tile-label">${esc(opt.label)}</span></button>`;
+  }).join('');
+  $$('#avOptions [data-avopt]').forEach((b) => b.addEventListener('click', () => { avDraft[avCategory] = b.dataset.avopt; renderAvatarMaker(); }));
+}
+$('#btnMakeAvatar').addEventListener('click', openAvatarMaker);
+$('#avClose').addEventListener('click', closeAvatarMaker);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#avatarView').classList.contains('hidden')) closeAvatarMaker();
+});
+$('#avRandom').addEventListener('click', () => {
+  const P = window.AvatarParts;
+  P.AVATAR_KEYS.forEach((k) => {
+    const opts = P.AVATAR_OPTIONS[k];
+    avDraft[k] = opts[Math.floor(Math.random() * opts.length)];
+  });
+  renderAvatarMaker();
+});
+$('#avSave').addEventListener('click', async () => {
+  const btn = $('#avSave'); btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const r = await api('/api/me', { method: 'PATCH', body: JSON.stringify({ avatar: avDraft }) });
+    me = r.user;
+    closeAvatarMaker();
+    refreshMyFaces();
+    $('#btnMakeAvatar').textContent = '🎨 Edit my avatar';
+    toast('Avatar saved! 🎨');
+  } catch (e) { toast(e.message); }
+  finally { btn.disabled = false; btn.textContent = 'Save'; }
 });
 
 /* ================= install as an app (PWA) ================= */

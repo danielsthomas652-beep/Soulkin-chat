@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS users (
   pass_hash TEXT NOT NULL,
   is_protected INTEGER NOT NULL DEFAULT 0,
   phone TEXT,
+  avatar TEXT,
   share_location INTEGER NOT NULL DEFAULT 0,
   lat REAL,
   lng REAL,
@@ -255,6 +256,15 @@ async function initDb() {
   }
   if (!userCols.some((c) => c.name === 'location_at')) {
     await db.exec('ALTER TABLE users ADD COLUMN location_at TEXT');
+  }
+  // Migration for databases created before the avatar maker:
+  // users.avatar holds the owner's build-a-character config as a JSON
+  // string of enum keys (validated against the shared whitelist in
+  // public/avatar-parts.js before every write — see PATCH /api/me).
+  // NULL means "no avatar yet" and the client falls back to the
+  // initial-letter circle, exactly as before avatars existed.
+  if (!userCols.some((c) => c.name === 'avatar')) {
+    await db.exec('ALTER TABLE users ADD COLUMN avatar TEXT');
   }
 }
 

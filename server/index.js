@@ -9,6 +9,7 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const WebSocket = require('ws');
 const { db, engine, cloudMode, initDb } = require('./db');
+const { sanitizeAvatar } = require('../public/avatar-parts');
 const { SONGS, songById } = require('./songs');
 const { VIDEOS } = require('./videos');
 
@@ -71,9 +72,18 @@ function clearSessionCookie(res) {
 }
 
 // ---------- helpers ----------
+// A stored avatar is a JSON string of enum keys from the shared
+// whitelist (public/avatar-parts.js). It is re-validated on the way
+// out as well as on the way in, so even a hand-edited database row can
+// only ever surface as a clean config object — or null, which the
+// client renders as the classic initial-letter circle.
+function parseAvatar(raw) {
+  if (!raw) return null;
+  return sanitizeAvatar(raw);
+}
 function publicUser(u) {
   if (!u) return null;
-  return { id: u.id, displayName: u.display_name, username: u.username, isProtected: !!u.is_protected, createdAt: u.created_at };
+  return { id: u.id, displayName: u.display_name, username: u.username, isProtected: !!u.is_protected, createdAt: u.created_at, avatar: parseAvatar(u.avatar) };
 }
 // publicUser deliberately carries NO phone number — a number is personal
 // data with its own sharing rules (see visiblePhone), so it is only ever
@@ -249,18 +259,26 @@ app.get('/api/me', async (req, res) => {
   };
   res.json({ user: ownUser(u), stats });
 });
-// Profile updates: displayName, phone and/or shareLocation, any one on
-// its own. phone: '' clears it; anything else must survive
+// Profile updates: displayName, phone, shareLocation and/or avatar,
+// any one on its own. phone: '' clears it; anything else must survive
 // normalizePhone. The stored number is only ever shared under the
 // visiblePhone rule. shareLocation must be a real boolean; turning it
 // OFF also wipes the stored fix (lat/lng/location_at) in the same
 // update, so a friend map can never resurrect a stale position.
+// avatar: a build-a-character config object (or null to take the
+// avatar off and go back to the initial-letter circle). Every key is
+// validated against the shared whitelist in public/avatar-parts.js —
+// an unknown part, an unknown key, or an oversized/garbage payload is
+// a 400 and nothing is stored. An avatar is cartoon parts, not a
+// photo, so there is NO extra gate: Protected accounts use it exactly
+// like everyone else.
 app.patch('/api/me', requireAuth, async (req, res) => {
   const body = req.body || {};
   const hasName = Object.prototype.hasOwnProperty.call(body, 'displayName');
   const hasPhone = Object.prototype.hasOwnProperty.call(body, 'phone');
   const hasShare = Object.prototype.hasOwnProperty.call(body, 'shareLocation');
-  if (!hasName && !hasPhone && !hasShare) return res.status(400).json({ error: 'Nothing to update.' });
+  const hasAvatar = Object.prototype.hasOwnProperty.call(body, 'avatar');
+  if (!hasName && !hasPhone && !hasShare && !hasAvatar) return res.status(400).json({ error: 'Nothing to update.' });
   if (hasName) {
     const name = String(body.displayName || '').trim().slice(0, 40);
     if (name.length < 2) return res.status(400).json({ error: 'Name is too short.' });
@@ -277,6 +295,15 @@ app.patch('/api/me', requireAuth, async (req, res) => {
       await db.prepare('UPDATE users SET share_location = 1 WHERE id = ?').run(req.user.id);
     } else {
       await db.prepare('UPDATE users SET share_location = 0, lat = NULL, lng = NULL, location_at = NULL WHERE id = ?').run(req.user.id);
+    }
+  }
+  if (hasAvatar) {
+    if (body.avatar === null) {
+      await db.prepare('UPDATE users SET avatar = NULL WHERE id = ?').run(req.user.id);
+    } else {
+      const cfg = sanitizeAvatar(body.avatar);
+      if (!cfg) return res.status(400).json({ error: "That avatar doesn't look right — build it from the parts in the avatar maker and try again." });
+      await db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(JSON.stringify(cfg), req.user.id);
     }
   }
   res.json({ user: ownUser(await getUserById(req.user.id)) });
