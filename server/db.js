@@ -173,6 +173,16 @@ CREATE TABLE IF NOT EXISTS media_blobs (
   data BLOB NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sender_id INTEGER NOT NULL REFERENCES users(id),
+  recipient_id INTEGER NOT NULL REFERENCES users(id),
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  read_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages (sender_id, recipient_id, id);
+CREATE INDEX IF NOT EXISTS idx_messages_unread ON messages (recipient_id, read_at, id);
 `;
 
 // Creates all tables if needed. Must be awaited once at startup, before

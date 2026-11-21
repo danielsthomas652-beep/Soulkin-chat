@@ -78,12 +78,13 @@ $('#authForm').addEventListener('submit', async (e) => {
 let currentView = 'feed';
 function showView(name) {
   currentView = name;
-  ['feed', 'videos', 'people', 'friends', 'profile'].forEach((v) => $('#view-' + v).classList.toggle('hidden', v !== name));
+  ['feed', 'videos', 'people', 'friends', 'chat', 'profile'].forEach((v) => $('#view-' + v).classList.toggle('hidden', v !== name));
   $$('.bottomnav button').forEach((b) => b.classList.toggle('on', b.dataset.nav === name));
   if (name === 'videos') { ensureVideos(); resumeCurrentSlide(); }
   else pauseAllSlides();
   if (name === 'people') loadPeople();
   if (name === 'friends') loadFriends();
+  if (name === 'chat') loadConversations();
   if (name === 'profile') loadProfile();
   window.scrollTo(0, 0);
 }
@@ -91,15 +92,15 @@ $$('.bottomnav button').forEach((b) => b.addEventListener('click', () => showVie
 
 /* ================= swipe between pages =================
  * A clear left/right swipe moves between the main tabs in bottom-nav
- * order (Feed → Videos → People → Friends → Profile). The Videos view
+ * order (Feed → Videos → People → Friends → Chat → Profile). The Videos view
  * itself is skipped — its pager owns horizontal swiping there — and a
  * swipe that starts in a form field, the top/bottom bars, an open
  * overlay, or a horizontally scrolling strip never changes the page.
  * The gesture must travel ~60px and be mostly horizontal, so ordinary
  * vertical scrolling never triggers it. */
-const TAB_ORDER = ['feed', 'videos', 'people', 'friends', 'profile'];
+const TAB_ORDER = ['feed', 'videos', 'people', 'friends', 'chat', 'profile'];
 function anyOverlayOpen() {
-  return ['#viewer', '#callView', '#postEditor', '#cameraView', '#sheet', '#callPopup', '#knowConfirm'].some((s) => !$(s).classList.contains('hidden'));
+  return ['#viewer', '#callView', '#postEditor', '#cameraView', '#threadView', '#sheet', '#callPopup', '#knowConfirm'].some((s) => !$(s).classList.contains('hidden'));
 }
 function insideHScroller(el) {
   while (el && el !== document.body) {
@@ -138,6 +139,7 @@ function enterApp() {
   loadFeed();
   showView('feed');
   connectWS();
+  refreshUnreadBadge();
 }
 
 /* ================= feed ================= */
@@ -748,7 +750,7 @@ async function loadFriends() {
     $('#grownupRequests').classList.toggle('hidden', grownups.length === 0);
     $('#friendRequestsGrownups').innerHTML = grownups.map((p) => personRowHTML(p, acceptDeclineBtns(p))).join('');
     $('#friendList').innerHTML = data.friends.length
-      ? data.friends.map((p) => personRowHTML(p, `<span class="friend-btns"><button class="btn sm" data-call="${p.id}" data-callname="${esc(p.displayName)}" type="button">📹 Video call</button><button class="btn ghost sm" data-friend="remove" data-id="${p.id}" type="button">Unfriend</button></span>`)).join('')
+      ? data.friends.map((p) => personRowHTML(p, `<span class="friend-btns"><button class="btn sm" data-message="${p.id}" data-msgname="${esc(p.displayName)}" data-msguser="${esc(p.username)}" type="button">💬 Message</button><button class="btn sm" data-call="${p.id}" data-callname="${esc(p.displayName)}" type="button">📹 Video call</button><button class="btn ghost sm" data-friend="remove" data-id="${p.id}" type="button">Unfriend</button></span>`)).join('')
       : '<div class="card empty">No friends yet — add some from the People page! 🙂</div>';
     $('#friendOutgoing').innerHTML = data.outgoing.length
       ? data.outgoing.map((p) => personRowHTML(p, '<span class="friend-state">Requested</span>')).join('')
@@ -814,6 +816,113 @@ document.addEventListener('click', async (e) => {
   } catch (ex) { toast(ex.message); btn.disabled = false; }
 });
 
+/* ================= messages (private 1:1 chat between friends) =================
+ * The Chat tab lists one row per friend: last message preview + unread
+ * count. Tapping a row (or the Message button in the Friends list)
+ * opens the thread full-screen; opening it marks their messages to me
+ * as read (the server does that in GET /api/messages/:userId). New
+ * messages arrive live over the same WebSocket as call signaling:
+ * {type:'dm'} appends to an open thread, {type:'dm-unread'} refreshes
+ * the badge on the Chat tab. */
+let chatPeer = null; // the friend whose thread is open: {id, displayName, username}
+
+function setUnreadBadge(n) {
+  const b = $('#chatBadge');
+  b.textContent = n > 99 ? '99+' : String(n);
+  b.classList.toggle('hidden', !n);
+}
+async function refreshUnreadBadge() {
+  try { const data = await api('/api/conversations'); setUnreadBadge(data.totalUnread); } catch (e) { /* best-effort */ }
+}
+function convoRowHTML(c) {
+  const u = c.user;
+  const last = c.lastMessage;
+  const preview = last ? (last.mine ? 'You: ' : '') + last.text : 'Say hi! 👋';
+  const when = last ? timeAgo(last.createdAt) : '';
+  const pill = c.unread ? `<span class="unread-pill">${c.unread > 99 ? '99+' : c.unread}</span>` : '';
+  return `<div class="card person convo" data-convo="${u.id}" data-msgname="${esc(u.displayName)}" data-msguser="${esc(u.username)}">${avatarHTML(u.displayName, u.username, 'md')}
+    <div class="grow"><div class="nm">${esc(u.displayName)}${u.isProtected ? '<span class="badge">🛡️ Protected</span>' : ''}</div><div class="sub preview">${esc(preview)}</div></div>
+    <span class="convo-side"><span class="sub">${esc(when)}</span>${pill}</span></div>`;
+}
+async function loadConversations() {
+  try {
+    const data = await api('/api/conversations');
+    setUnreadBadge(data.totalUnread);
+    $('#chatList').innerHTML = data.conversations.length
+      ? data.conversations.map(convoRowHTML).join('')
+      : '<div class="card empty">No friends yet — add some from the People page, then you can message them here! 💬</div>';
+  } catch (e) { toast(e.message); }
+}
+function bubbleHTML(m) {
+  return `<div class="bubble-row ${m.mine ? 'mine' : 'theirs'}"><div class="bubble">${esc(m.text)}</div><div class="btime">${timeAgo(m.createdAt)}</div></div>`;
+}
+function scrollThread() { const b = $('#threadBody'); b.scrollTop = b.scrollHeight; }
+async function openThread(user) {
+  chatPeer = user;
+  $('#threadAvatar').innerHTML = avatarHTML(user.displayName, user.username, 'sm');
+  $('#threadName').textContent = user.displayName;
+  $('#threadBody').innerHTML = '<p class="empty">Loading…</p>';
+  $('#threadView').classList.remove('hidden');
+  try {
+    const data = await api('/api/messages/' + user.id);
+    if (!chatPeer || chatPeer.id !== user.id) return; // closed or switched while loading
+    $('#threadBody').innerHTML = data.messages.length
+      ? data.messages.map(bubbleHTML).join('')
+      : '<p class="empty">No messages yet — say hi! 👋</p>';
+    scrollThread();
+    refreshUnreadBadge(); // opening the thread marked their messages read
+    if (currentView === 'chat') loadConversations();
+  } catch (e) {
+    closeThread();
+    toast(e.message);
+  }
+}
+function closeThread() {
+  chatPeer = null;
+  $('#threadView').classList.add('hidden');
+  if (currentView === 'chat') loadConversations();
+}
+$('#threadBack').addEventListener('click', closeThread);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && chatPeer) closeThread();
+});
+$('#threadForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!chatPeer) return;
+  const input = $('#threadText');
+  const text = input.value.trim();
+  if (!text) return;
+  try {
+    const r = await api('/api/messages/' + chatPeer.id, { method: 'POST', body: JSON.stringify({ text }) });
+    const empty = $('#threadBody .empty'); if (empty) empty.remove();
+    $('#threadBody').insertAdjacentHTML('beforeend', bubbleHTML(r.message));
+    input.value = '';
+    scrollThread();
+  } catch (ex) { toast(ex.message); }
+});
+/* conversation rows + Friends-list Message buttons open the thread */
+document.addEventListener('click', (e) => {
+  const row = e.target.closest('[data-convo]');
+  if (row) { openThread({ id: +row.dataset.convo, displayName: row.dataset.msgname, username: row.dataset.msguser }); return; }
+  const btn = e.target.closest('[data-message]');
+  if (btn) openThread({ id: +btn.dataset.message, displayName: btn.dataset.msgname, username: btn.dataset.msguser });
+});
+function onIncomingDm(m) {
+  const msg = m.message;
+  if (!msg) return;
+  if (chatPeer && chatPeer.id === msg.senderId && !$('#threadView').classList.contains('hidden')) {
+    // I'm looking at this very thread: show it, then re-fetch so the
+    // server marks it read and the badge stays honest.
+    const empty = $('#threadBody .empty'); if (empty) empty.remove();
+    $('#threadBody').insertAdjacentHTML('beforeend', bubbleHTML({ ...msg, mine: false }));
+    scrollThread();
+    api('/api/messages/' + msg.senderId).then(() => refreshUnreadBadge()).catch(() => {});
+  } else if (msg.from) {
+    toast('💬 ' + msg.from.displayName + ': ' + (msg.text.length > 60 ? msg.text.slice(0, 60) + '…' : msg.text));
+  }
+  if (currentView === 'chat') loadConversations();
+}
+
 /* ================= video calls (WebRTC + WebSocket signaling) ================= */
 // The server relays only the setup messages; picture and sound travel
 // directly between the two phones/computers. Calls work between friends
@@ -849,6 +958,8 @@ function wsSendMsg(obj) { if (wsConn && wsConn.readyState === WebSocket.OPEN) ws
 
 function onWsMessage(m) {
   if (m.type === 'presence') { onlineFriends = new Set(m.online || []); presenceReady = true; patchOnlineDots(); }
+  else if (m.type === 'dm') onIncomingDm(m);
+  else if (m.type === 'dm-unread') setUnreadBadge(m.count || 0);
   else if (m.type === 'friend-online' && m.user) { onlineFriends.add(m.user.id); patchOnlineDots(); }
   else if (m.type === 'friend-offline' && m.user) { onlineFriends.delete(m.user.id); patchOnlineDots(); }
   else if (m.type === 'incoming-call') showIncomingCall(m);

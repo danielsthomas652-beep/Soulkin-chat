@@ -434,6 +434,96 @@ app.get('/api/friends', requireAuth, async (req, res) => {
   res.json({ friends, incoming, outgoing });
 });
 
+// ----- messages (private 1:1 DMs between friends) -----
+// RULES — enforced here, server-side:
+//   * Messages only between ACCEPTED friends. Non-friends get a 403.
+//   * Cross-band (adult <-> Protected) friends made under the knows-in-
+//     real-life rule (friendships.known_confirmed = 1) MAY message — the
+//     Protected user already confirmed they know this person. A cross-band
+//     friendship row WITHOUT that confirmation shouldn't exist; if one
+//     somehow does, messaging is refused for it too (defense in depth).
+//   * Video calls stay stricter: cross-band calls are refused even
+//     between confirmed friends (see startVideoCall — untouched).
+// Same profanity filter as posts (cleanText); max ~1000 chars; empty
+// messages refused. Threads are stored in the messages table; opening a
+// thread marks everything sent TO me in it as read. New messages are
+// also pushed live over the same WebSocket as call signaling (wsSend is
+// defined in the signaling section below — handlers only run after the
+// whole module has loaded, so the reference is safe).
+function messageRow(m, meId) {
+  return {
+    id: m.id, senderId: m.sender_id, recipientId: m.recipient_id, text: m.text,
+    createdAt: m.created_at, readAt: m.read_at, mine: m.sender_id === meId,
+  };
+}
+async function totalUnread(userId) {
+  return (await db.prepare('SELECT COUNT(*) c FROM messages WHERE recipient_id = ? AND read_at IS NULL').get(userId)).c;
+}
+// The gate every messaging endpoint shares. Returns { other } on success
+// or { status, error } describing the refusal in plain language.
+async function messagingGate(me, otherId) {
+  if (!Number.isInteger(otherId) || otherId <= 0) return { status: 400, error: 'Missing userId.' };
+  if (otherId === me.id) return { status: 400, error: "You can't message yourself." };
+  const other = await getUserById(otherId);
+  if (!other) return { status: 404, error: 'That person was not found.' };
+  const f = await friendshipBetween(me.id, otherId);
+  if (!f || f.status !== 'accepted') {
+    return { status: 403, error: 'You can only message your friends — add ' + other.display_name + ' as a friend first.' };
+  }
+  const crossBand = !!me.is_protected !== !!other.is_protected;
+  if (crossBand && !f.known_confirmed) {
+    return { status: 403, error: 'For safety, messages open between a Protected account and a grown-up only after the Protected account confirms they know them in real life.' };
+  }
+  return { other };
+}
+app.post('/api/messages/:userId', requireAuth, async (req, res) => {
+  const gate = await messagingGate(req.user, +req.params.userId);
+  if (!gate.other) return res.status(gate.status).json({ error: gate.error });
+  const raw = String((req.body || {}).text || '').trim();
+  if (!raw) return res.status(400).json({ error: 'Write a message first.' });
+  const text = cleanText(raw.slice(0, 1000));
+  const info = await db.prepare('INSERT INTO messages (sender_id, recipient_id, text) VALUES (?, ?, ?)')
+    .run(req.user.id, gate.other.id, text);
+  const row = await db.prepare('SELECT * FROM messages WHERE id = ?').get(info.lastInsertRowid);
+  // Live push to the recipient (if they're here right now): the message
+  // itself, then their new unread total for the Chat badge.
+  wsSend(gate.other.id, { type: 'dm', message: { ...messageRow(row, gate.other.id), from: publicUser(req.user) } });
+  wsSend(gate.other.id, { type: 'dm-unread', count: await totalUnread(gate.other.id) });
+  res.json({ message: messageRow(row, req.user.id) });
+});
+app.get('/api/messages/:userId', requireAuth, async (req, res) => {
+  const gate = await messagingGate(req.user, +req.params.userId);
+  if (!gate.other) return res.status(gate.status).json({ error: gate.error });
+  // Opening the thread marks everything they sent me in it as read.
+  await db.prepare("UPDATE messages SET read_at = datetime('now') WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL")
+    .run(gate.other.id, req.user.id);
+  const rows = await db.prepare(`SELECT * FROM messages
+    WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
+    ORDER BY id DESC LIMIT 200`).all(req.user.id, gate.other.id, gate.other.id, req.user.id);
+  res.json({ user: publicUser(gate.other), messages: rows.reverse().map((m) => messageRow(m, req.user.id)) });
+});
+app.get('/api/conversations', requireAuth, async (req, res) => {
+  const meId = req.user.id;
+  const friendIds = await acceptedFriendIds(meId);
+  const conversations = [];
+  for (const fid of friendIds) {
+    const other = await getUserById(fid);
+    if (!other) continue;
+    const last = await db.prepare(`SELECT * FROM messages
+      WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
+      ORDER BY id DESC LIMIT 1`).get(meId, fid, fid, meId);
+    const unread = (await db.prepare('SELECT COUNT(*) c FROM messages WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL').get(fid, meId)).c;
+    conversations.push({
+      user: publicUser(other),
+      lastMessage: last ? messageRow(last, meId) : null,
+      unread,
+    });
+  }
+  // Most recently active first; friends we've never messaged go last.
+  conversations.sort((a, b) => ((b.lastMessage ? b.lastMessage.id : 0) - (a.lastMessage ? a.lastMessage.id : 0)));
+  res.json({ conversations, totalUnread: await totalUnread(meId) });
+});
+
 // ----- video chat signaling (WebSocket, /ws) -----
 // 1:1 friend video calls. The WebSocket carries ONLY signaling (call setup,
 // SDP offer/answer, ICE candidates, hangup/decline) — the actual audio/video

@@ -106,6 +106,12 @@
       <div id="friendOutgoing"></div>
     </section>
 
+    <!-- CHAT -->
+    <section id="view-chat" class="hidden">
+      <div class="view-title"><span class="dot"></span> Messages</div>
+      <div id="chatList"></div>
+    </section>
+
     <!-- PROFILE -->
     <section id="view-profile" class="hidden">
       <div class="card profile-head">
@@ -134,6 +140,7 @@
       <button data-nav="videos" type="button"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>Videos</button>
       <button data-nav="people" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/><circle cx="17.5" cy="9" r="2.6"/><path d="M16 15.2c2.3.3 4.3 1.8 5 4.3"/></svg>People</button>
       <button data-nav="friends" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="3.5"/><path d="M3.5 20c.7-3.4 3.2-5.2 6.5-5.2 1.4 0 2.7.3 3.8 1"/><path d="m15.5 18.3 2 2 3.6-3.9"/></svg>Friends</button>
+      <button data-nav="chat" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z"/></svg>Chat<span class="nav-badge hidden" id="chatBadge">0</span></button>
       <button data-nav="profile" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4.5 21c1-4 4-6 7.5-6s6.5 2 7.5 6"/></svg>Profile</button>
     </div>
   </nav>
@@ -251,6 +258,20 @@
     <button class="call-ctl" id="btnCam" type="button">📷<span>Camera</span></button>
     <button class="call-ctl hangup" id="btnHangup" type="button">📞<span>Hang up</span></button>
   </div>
+</div>
+
+<!-- ============ MESSAGE THREAD ============ -->
+<div id="threadView" class="overlay thread-view hidden">
+  <div class="viewer-top thread-top">
+    <button class="x" id="threadBack" type="button" aria-label="Back">‹</button>
+    <span id="threadAvatar"></span>
+    <b id="threadName">Friend</b>
+  </div>
+  <div class="thread-body" id="threadBody"></div>
+  <form class="thread-form" id="threadForm">
+    <input id="threadText" maxlength="1000" placeholder="Write a message…" autocomplete="off">
+    <button class="btn red" type="submit">Send</button>
+  </form>
 </div>
 
 <audio id="songAudio" loop></audio>

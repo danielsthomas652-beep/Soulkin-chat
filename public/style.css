@@ -136,7 +136,7 @@ input,textarea,select{font:inherit}
 /* ---------- bottom nav ---------- */
 .bottomnav{position:fixed; left:0; right:0; bottom:0; z-index:40; background:linear-gradient(90deg,var(--navy) 0%,var(--navy2) 80%,#2f5aa8 100%); border-top:3px solid var(--red); box-shadow:0 -4px 16px rgba(22,48,94,.35)}
 .bottomnav-in{max-width:560px; margin:0 auto; display:flex}
-.bottomnav button{flex:1; padding:9px 2px 12px; display:flex; flex-direction:column; align-items:center; gap:2px; color:#9fb0d4; font-size:12px; font-weight:700}
+.bottomnav button{flex:1; padding:9px 2px 12px; display:flex; flex-direction:column; align-items:center; gap:2px; color:#9fb0d4; font-size:12px; font-weight:700; position:relative}
 .bottomnav button svg{width:24px; height:24px}
 .bottomnav button.on{color:#fff}
 .bottomnav button.on svg{color:#ff8b99}
@@ -215,3 +215,25 @@ input,textarea,select{font:inherit}
 .call-ctl span{font-size:11px; font-weight:700}
 .call-ctl.off{background:var(--red)}
 .call-ctl.hangup{background:var(--red)}
+
+/* ---------- messages (chat) ---------- */
+.nav-badge{position:absolute; top:3px; left:calc(50% + 3px); background:var(--red); color:#fff; font-size:11px; font-weight:800; min-width:19px; height:19px; border-radius:999px; display:inline-flex; align-items:center; justify-content:center; padding:0 5px; border:2px solid rgba(255,255,255,.35)}
+.convo{cursor:pointer}
+.convo:active{background:var(--soft)}
+.convo .preview{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:270px}
+.convo-side{display:flex; flex-direction:column; align-items:flex-end; gap:5px; flex:none}
+.unread-pill{background:var(--red); color:#fff; font-size:12px; font-weight:800; min-width:22px; height:22px; border-radius:999px; display:inline-flex; align-items:center; justify-content:center; padding:0 6px}
+#threadView{background:linear-gradient(180deg,#cfdef3 0%,#e3ebf8 34%,#eef2f7 62%,#f9e9ec 100%); z-index:65}
+.thread-top{background:linear-gradient(90deg,var(--navy) 0%,var(--navy2) 80%,#2f5aa8 100%); border-bottom:3px solid var(--red); box-shadow:0 4px 16px rgba(22,48,94,.35)}
+.thread-top .x{margin-left:0; font-size:24px; line-height:1}
+.thread-body{flex:1; overflow-y:auto; width:100%; max-width:560px; margin:0 auto; padding:14px 12px; display:flex; flex-direction:column; gap:8px}
+.bubble-row{display:flex; flex-direction:column; max-width:78%}
+.bubble-row.mine{align-self:flex-end; align-items:flex-end}
+.bubble-row.theirs{align-self:flex-start; align-items:flex-start}
+.bubble-row .bubble{padding:9px 13px; border-radius:16px; font-size:15px; line-height:1.4; white-space:pre-wrap; word-wrap:break-word; overflow-wrap:anywhere}
+.bubble-row.mine .bubble{background:var(--navy); color:#fff; border-bottom-right-radius:6px}
+.bubble-row.theirs .bubble{background:#fff; border:1px solid var(--border); border-bottom-left-radius:6px}
+.bubble-row .btime{font-size:11px; color:var(--muted); margin:2px 4px 0}
+.thread-form{display:flex; gap:8px; width:100%; max-width:560px; margin:0 auto; padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
+.thread-form input{flex:1; border:1.5px solid var(--border); border-radius:999px; padding:11px 15px; background:#fff; color:var(--ink)}
+.thread-form input:focus{outline:none; border-color:var(--navy2)}
