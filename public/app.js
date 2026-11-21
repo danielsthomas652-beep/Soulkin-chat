@@ -99,7 +99,7 @@ $$('.bottomnav button').forEach((b) => b.addEventListener('click', () => showVie
  * vertical scrolling never triggers it. */
 const TAB_ORDER = ['feed', 'videos', 'people', 'friends', 'profile'];
 function anyOverlayOpen() {
-  return ['#viewer', '#callView', '#postEditor', '#sheet', '#callPopup', '#knowConfirm'].some((s) => !$(s).classList.contains('hidden'));
+  return ['#viewer', '#callView', '#postEditor', '#cameraView', '#sheet', '#callPopup', '#knowConfirm'].some((s) => !$(s).classList.contains('hidden'));
 }
 function insideHScroller(el) {
   while (el && el !== document.body) {
@@ -307,6 +307,86 @@ $('#editorPost').addEventListener('click', async () => {
     toast('Posted! 🎉');
   } catch (ex) { toast(ex.message); }
   finally { btn.disabled = false; btn.textContent = 'Post'; }
+});
+
+/* ================= camera =================
+ * Snapchat-style in-app camera. The Camera buttons (feed composer and
+ * Post Editor) open a full-screen viewfinder that starts on the REAR
+ * camera (facingMode 'environment') so you can photograph other people;
+ * Flip switches to the front camera ('user') and back. Take picture
+ * draws the current frame to a canvas and drops the JPEG into the Post
+ * Editor as the draft's photo — the exact same setEditorFile() state
+ * the gallery picker feeds, so posting works exactly as before.
+ * Leaving the camera screen (capture, ✕, Escape) always stops its
+ * tracks; closing without capturing leaves the draft untouched. */
+let camStream = null;
+let camFacing = 'environment'; // rear camera first — for photographing other people
+
+function cameraErrorMessage(e) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || (e && e.name === 'UnsupportedError')) {
+    return 'This browser cannot open a camera here. Try Chrome or Safari on your phone, on the secure (https) address.';
+  }
+  if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) return 'Camera is blocked. Allow the camera for this site in your browser settings, then try again.';
+  if (e && e.name === 'NotFoundError') return 'No camera was found on this device.';
+  if (e && (e.name === 'NotReadableError' || e.name === 'AbortError')) return 'Your camera is busy in another app right now. Close that app and try again.';
+  if (e && e.name === 'OverconstrainedError') return 'That camera is not available on this device.';
+  return 'The camera could not start. Please try again.';
+}
+function stopCameraStream() {
+  if (camStream) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; }
+  const v = $('#camVideo'); if (v) v.srcObject = null;
+}
+async function startCameraStream() {
+  stopCameraStream();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    const err = new Error('getUserMedia is not available'); err.name = 'UnsupportedError'; throw err;
+  }
+  camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: camFacing }, audio: false });
+  const v = $('#camVideo');
+  v.srcObject = camStream;
+  try { await v.play(); } catch (e) { /* the stream still shows once the browser starts it */ }
+  $('#camHint').textContent = camFacing === 'environment'
+    ? 'Back camera — point it at your picture, then tap the big button 📸'
+    : 'Front camera — tap the big button when you\'re ready 📸';
+}
+async function openCamera() {
+  $('#cameraView').classList.remove('hidden');
+  $('#camHint').textContent = 'Starting your camera…';
+  try { await startCameraStream(); }
+  catch (e) { closeCamera(); toast(cameraErrorMessage(e)); }
+}
+function closeCamera() {
+  stopCameraStream();
+  $('#cameraView').classList.add('hidden');
+}
+async function flipCamera() {
+  camFacing = camFacing === 'environment' ? 'user' : 'environment';
+  try { await startCameraStream(); }
+  catch (e) { closeCamera(); toast(cameraErrorMessage(e)); }
+}
+function capturePhoto() {
+  const v = $('#camVideo');
+  if (!camStream || !v.videoWidth) { toast('The camera is still warming up — give it a second and try again.'); return; }
+  const canvas = document.createElement('canvas');
+  canvas.width = v.videoWidth;
+  canvas.height = v.videoHeight;
+  canvas.getContext('2d').drawImage(v, 0, 0, canvas.width, canvas.height);
+  canvas.toBlob((blob) => {
+    if (!blob) { toast('That picture did not come out — try again.'); return; }
+    const file = new File([blob], 'camera-photo.jpg', { type: 'image/jpeg' });
+    closeCamera();
+    setEditorFile(file, 'image'); // the same draft state the gallery picker feeds
+    openEditor(false);
+    toast('Got it! Add some words, then tap Post 📸');
+  }, 'image/jpeg', 0.92);
+}
+$('#btnCamera').addEventListener('click', openCamera);
+$('#edBtnCamera').addEventListener('click', openCamera);
+$('#camClose').addEventListener('click', closeCamera);
+$('#camFlip').addEventListener('click', flipCamera);
+$('#camCapture').addEventListener('click', capturePhoto);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#cameraView').classList.contains('hidden')) closeCamera();
 });
 
 /* ================= videos ================= */

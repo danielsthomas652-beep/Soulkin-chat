@@ -61,6 +61,7 @@
           <textarea id="composerText" rows="2" placeholder="What's on your mind?"></textarea>
         </div>
         <div class="composer-row">
+          <button class="chip-btn" id="btnCamera" type="button">📸 Camera</button>
           <button class="chip-btn" id="btnPhoto" type="button">📷 Photo</button>
           <button class="chip-btn" id="btnVideoFile" type="button">🎬 Video</button>
           <button class="chip-btn" id="btnMusic" type="button">🎵 Music</button>
@@ -148,6 +149,7 @@
   <div class="editor-body">
     <div id="editorMedia" class="editor-media"></div>
     <div class="editor-media-btns">
+      <button class="chip-btn" id="edBtnCamera" type="button">📸 Camera</button>
       <button class="chip-btn" id="edBtnPhoto" type="button">📷 Add photo</button>
       <button class="chip-btn" id="edBtnVideo" type="button">🎬 Add video</button>
       <button class="chip-btn hidden" id="edBtnRemoveMedia" type="button">🗑 Remove media</button>
@@ -158,6 +160,26 @@
       <button class="chip-btn" id="edBtnMusic" type="button">🎵 Add music</button>
     </div>
     <p class="editor-hint">Music plays along with videos — pick a video first, then add a song. Nothing is posted until you tap Post. 🎬</p>
+  </div>
+</div>
+
+<!-- ============ CAMERA ============ -->
+<div id="cameraView" class="overlay camera-view hidden">
+  <div class="viewer-top">
+    <b>Camera</b>
+    <button class="x" id="camClose" type="button" aria-label="Close camera">✕</button>
+  </div>
+  <div class="camera-stage">
+    <video id="camVideo" autoplay playsinline muted></video>
+    <p class="camera-hint" id="camHint">Starting your camera…</p>
+  </div>
+  <div class="camera-controls">
+    <button class="call-ctl" id="camFlip" type="button">🔄<span>Flip</span></button>
+    <div class="capture-wrap">
+      <button class="capture-btn" id="camCapture" type="button" aria-label="Take picture"></button>
+      <span class="capture-label">Take picture</span>
+    </div>
+    <span class="camera-spacer"></span>
   </div>
 </div>
 
