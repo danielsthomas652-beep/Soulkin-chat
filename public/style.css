@@ -1,14 +1,23 @@
+/* ---------- design tokens ----------
+   One system everywhere: spacing steps 6/10/14/18, card radius 16,
+   control radius 12 (pills stay 999), one card shadow, one focus ring,
+   type scale — titles 15/800 navy, names 16/700, body 15–16, meta 13. */
 :root{
   --bg:#eef2f7; --surface:#ffffff; --navy:#16305e; --navy2:#22457f;
   --red:#e23b4e; --ink:#16233c; --muted:#68779a; --border:#dbe3ef;
   --soft:#e7edf6; --gold:#f5a623; --rail:64px;
+  --card-border:#c7d7f2; --radius:16px; --radius-sm:12px;
+  --shadow-card:0 1px 3px rgba(22,48,94,.07), 0 10px 24px rgba(22,48,94,.09);
+  --shadow-btn:0 2px 8px rgba(22,48,94,.18);
+  --ring:0 0 0 3px rgba(34,69,127,.18);
   --wash:linear-gradient(165deg,#a9d6ff 0%,#c2baff 27%,#f3c2ff 47%,#ffd2e1 66%,#ffe4b8 85%,#c6f2d8 100%);
   --av1:#ef476f; --av2:#f78c6b; --av3:#ffd166; --av4:#06d6a0; --av5:#118ab2; --av6:#7b61c9; --av7:#e23b4e; --av8:#3a9ad9;
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0}
-body{background:var(--wash); background-attachment:fixed; color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; font-size:16px}
+body{background:var(--wash); background-attachment:fixed; color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; font-size:16px; line-height:1.45; -webkit-font-smoothing:antialiased}
 button{font:inherit; cursor:pointer; border:none; background:none; color:inherit}
+button:focus-visible{outline:2px solid rgba(34,69,127,.55); outline-offset:2px}
 input,textarea,select{font:inherit}
 .hidden{display:none !important}
 .wrap{max-width:calc(560px + var(--rail)); margin:0 auto; padding:0 10px 28px calc(10px + var(--rail))}
@@ -19,7 +28,7 @@ input,textarea,select{font:inherit}
 .logo-chip{background:#fff; border-radius:11px; padding:4px 9px; display:inline-flex; align-items:center; flex:none; box-shadow:0 2px 8px rgba(9,16,30,.25)}
 .logo-chip img{height:27px; width:auto; display:block}
 .topbar .spacer{flex:1}
-.me-chip{display:flex; align-items:center; gap:8px; font-weight:600; color:#e8eefb; font-size:14px}
+.me-chip{display:flex; align-items:center; gap:8px; font-weight:600; color:#e8eefb; font-size:14px; background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.14); border-radius:999px; padding:4px 12px 4px 4px}
 
 /* ---------- avatars ---------- */
 .avatar{border-radius:50%; color:#fff; display:inline-flex; align-items:center; justify-content:center; font-weight:700; flex:none; text-transform:uppercase}
@@ -45,36 +54,40 @@ input,textarea,select{font:inherit}
 .av-tile-label{font-size:12px; font-weight:700; color:var(--navy); line-height:1.25; text-align:center}
 
 /* ---------- auth ---------- */
-.auth-wrap{max-width:420px; margin:6vh auto 0; padding:0 14px}
-.auth-card{background:var(--surface); border:1px solid #c3d2e8; border-top:5px solid var(--red); border-radius:18px; padding:26px 22px; box-shadow:0 14px 36px rgba(22,48,94,.22)}
+.auth-wrap{max-width:420px; margin:7vh auto 0; padding:0 14px}
+.auth-card{background:var(--surface); border:1px solid #c3d2e8; border-top:5px solid var(--red); border-radius:20px; padding:32px 26px 28px; box-shadow:0 20px 44px rgba(22,48,94,.24)}
 .auth-logo{text-align:center}
 .auth-logo img{width:190px; max-width:82%; height:auto; display:inline-block}
-.auth-tag{text-align:center; color:var(--muted); margin:4px 0 18px}
-.auth-tabs{display:flex; gap:8px; margin-bottom:16px}
-.auth-tabs button{flex:1; padding:10px; border-radius:10px; background:var(--soft); color:var(--navy); font-weight:700}
-.auth-tabs button.on{background:linear-gradient(135deg,var(--navy),#3a6fd8); color:#fff}
-.field{margin-bottom:12px}
-.field label{display:block; font-size:13px; font-weight:600; color:var(--navy); margin-bottom:5px}
-.field input{width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; background:#fbfcfe}
-.field input:focus{outline:none; border-color:var(--navy2)}
+.auth-tag{text-align:center; color:var(--muted); font-size:15px; margin:8px 0 20px}
+.auth-tabs{display:flex; gap:8px; margin-bottom:18px; background:var(--soft); border-radius:12px; padding:4px}
+.auth-tabs button{flex:1; padding:10px; border-radius:9px; background:transparent; color:var(--navy); font-weight:700}
+.auth-tabs button.on{background:linear-gradient(135deg,var(--navy),#3a6fd8); color:#fff; box-shadow:0 2px 8px rgba(22,48,94,.25)}
+.field{margin-bottom:14px}
+.field label{display:block; font-size:13px; font-weight:600; color:var(--navy); margin-bottom:6px}
+.field input{width:100%; padding:12px 13px; border:1.5px solid var(--border); border-radius:var(--radius-sm); background:#fbfcfe}
+.field input:focus{outline:none; border-color:var(--navy2); box-shadow:var(--ring)}
 .check{display:flex; gap:9px; align-items:flex-start; background:#fff8e6; border:1px solid #f3dfa0; border-radius:10px; padding:10px 12px; font-size:14px; margin-bottom:14px}
 .check input{width:19px;height:19px;margin-top:1px}
-.btn{display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:11px 18px; border-radius:11px; font-weight:700; background:linear-gradient(135deg,var(--navy2),#3a6fd8); color:#fff}
+/* Button tiers: primary = navy gradient, red = the one big call to
+   action per screen, ghost = quiet secondary on a soft fill. One
+   height, one radius, one weight everywhere. */
+.btn{display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:11px 18px; min-height:44px; border-radius:var(--radius-sm); font-weight:700; font-size:15px; background:linear-gradient(135deg,var(--navy2),#3a6fd8); color:#fff; box-shadow:var(--shadow-btn)}
 .btn.red{background:linear-gradient(135deg,var(--red),#ff6b81)}
-.btn.ghost{background:var(--soft); color:var(--navy)}
+.btn.ghost{background:var(--soft); color:var(--navy); box-shadow:none; border:1px solid var(--border)}
 .btn.block{width:100%}
+.btn:active{transform:scale(.98)}
 .btn:disabled{opacity:.55}
 .err{background:#fdeef0; color:#a41f30; border:1px solid #f5c2c9; padding:10px 12px; border-radius:10px; font-size:14px; margin-bottom:12px}
 
 /* ---------- cards & feed ---------- */
-.card{background:var(--surface); border:1px solid #bcd0f2; border-radius:16px; padding:14px; margin-top:12px; box-shadow:0 4px 14px rgba(90,70,180,.13)}
+.card{background:var(--surface); border:1px solid var(--card-border); border-radius:var(--radius); padding:14px; margin-top:12px; box-shadow:var(--shadow-card)}
 .composer{background:linear-gradient(180deg,#e2efff,#ffe9f2)}
-.view-title{font-size:15px; font-weight:800; color:var(--navy); margin:16px 2px 0; display:flex; align-items:center; gap:7px}
+.view-title{font-size:15px; font-weight:800; letter-spacing:.2px; color:var(--navy); margin:18px 2px 0; display:flex; align-items:center; gap:7px}
 .view-title .dot{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,var(--red),var(--gold))}
 .composer textarea{width:100%; border:none; resize:none; font-size:17px; padding:6px 2px; background:transparent}
 .composer textarea:focus{outline:none}
 .composer-row{display:flex; align-items:center; gap:6px; border-top:1px solid var(--border); padding-top:10px; margin-top:4px}
-.chip-btn{display:inline-flex; align-items:center; gap:6px; padding:8px 11px; border-radius:999px; background:linear-gradient(180deg,#eef4ff,#ffeef4); color:var(--navy); font-weight:600; font-size:14px}
+.chip-btn{display:inline-flex; align-items:center; gap:6px; padding:8px 11px; border-radius:999px; background:linear-gradient(180deg,#eef4ff,#ffeef4); border:1px solid #d7e4f8; color:var(--navy); font-weight:600; font-size:14px}
 .chip-btn svg{width:18px;height:18px}
 .post-btn{margin-left:auto; background:linear-gradient(135deg,var(--red),#ff6b81); color:#fff; padding:9px 20px; border-radius:999px; font-weight:800}
 .media-preview{position:relative; margin-top:10px}
@@ -84,7 +97,7 @@ input,textarea,select{font:inherit}
 .song-tag button{color:var(--red); font-weight:800}
 
 .post-head{display:flex; gap:10px; align-items:center}
-.post-head .nm{font-weight:700; color:var(--ink)}
+.post-head .nm{font-weight:700; font-size:16px; color:var(--ink)}
 .post-head .sub{font-size:13px; color:var(--muted)}
 .badge{display:inline-block; background:#fff3d6; color:#8a6100; border:1px solid #f0d48a; font-size:11px; font-weight:700; padding:1px 7px; border-radius:999px; margin-left:6px; vertical-align:1px}
 .post-text{margin:10px 0 0; font-size:16px; line-height:1.45; white-space:pre-wrap; word-wrap:break-word}
@@ -93,7 +106,7 @@ input,textarea,select{font:inherit}
 .post-song{display:flex; align-items:center; gap:8px; margin-top:8px; font-size:13px; color:var(--navy); font-weight:600}
 .post-song .pill{background:#eef4ff; border:1px solid #cfdef8; border-radius:999px; padding:5px 10px}
 .post-actions{display:flex; border-top:1px solid var(--border); margin-top:12px; padding-top:6px}
-.post-actions button{flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:9px 2px; border-radius:9px; color:var(--navy); font-weight:600; font-size:14px}
+.post-actions button{flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:9px 2px; min-height:40px; border-radius:9px; color:var(--navy); font-weight:600; font-size:14px}
 .post-actions button:active{background:var(--soft)}
 .post-actions button.liked{color:var(--red)}
 .post-actions svg{width:19px;height:19px}
@@ -103,6 +116,7 @@ input,textarea,select{font:inherit}
 .comment .bubble b{color:var(--navy)}
 .comment-form{display:flex; gap:8px; margin-top:8px}
 .comment-form input{flex:1; border:1.5px solid var(--border); border-radius:999px; padding:9px 14px; background:#fbfcfe}
+.comment-form input:focus{outline:none; border-color:var(--navy2); box-shadow:var(--ring)}
 .comment-form button{background:var(--navy); color:#fff; border-radius:999px; padding:9px 16px; font-weight:700}
 
 /* ---------- feed: TikTok-style video cards ---------- */
@@ -166,10 +180,17 @@ input,textarea,select{font:inherit}
 /* ---------- people & profile ---------- */
 .person{display:flex; align-items:center; gap:12px}
 .person .grow{flex:1; min-width:0}
-.person .nm{font-weight:700}
-.person .sub{font-size:13px; color:var(--muted)}
+.person .nm{font-weight:700; font-size:16px; color:var(--ink); line-height:1.3}
+.person .sub{font-size:13px; color:var(--muted); line-height:1.35}
 .person .cnt{font-weight:800; color:var(--navy); background:var(--soft); border-radius:999px; padding:5px 11px; font-size:13px}
-.btn.sm{padding:8px 13px; border-radius:999px; font-size:14px; white-space:nowrap}
+/* Two-line rows (friends + friend requests): name line on top, the
+   action buttons in their own row underneath, indented to align with
+   the name (44px avatar + 12px gap). Nothing sits on top of the name. */
+.person-stack{flex-direction:column; align-items:stretch; gap:10px}
+.person-main{display:flex; align-items:center; gap:12px; min-width:0}
+.person-actions{display:flex; margin-left:56px}
+.person-actions .friend-btns{flex-wrap:wrap}
+.btn.sm{padding:8px 13px; min-height:38px; border-radius:999px; font-size:14px; white-space:nowrap}
 .friend-state{font-weight:800; color:var(--muted); background:var(--soft); border-radius:999px; padding:7px 12px; font-size:13px; white-space:nowrap}
 .friend-state.ok{color:#0a7a52; background:#e2f6ee}
 .friend-note{font-size:12px; font-weight:700; color:#a41f30; margin-top:2px}
@@ -182,18 +203,21 @@ a.btn{text-decoration:none}
 .profile-head .nm{font-size:21px; font-weight:800; margin-top:10px}
 .profile-head .sub{color:var(--muted)}
 .stats{display:flex; gap:8px; margin-top:14px}
-.stats .stat{flex:1; background:linear-gradient(135deg,#d9ecff,#ffe3f0); border:1px solid #bccfec; border-radius:12px; padding:10px 4px}
+.stats .stat{flex:1; background:linear-gradient(135deg,#d9ecff,#ffe3f0); border:1px solid #bccfec; border-radius:14px; padding:12px 4px}
 .stats .stat b{display:block; font-size:19px; color:var(--navy)}
 .stats .stat span{font-size:12px; color:var(--muted)}
 .edit-row{display:flex; gap:8px; margin-top:12px}
-.edit-row input{flex:1; border:1.5px solid var(--border); border-radius:10px; padding:10px 12px}
+.edit-row input{flex:1; border:1.5px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; background:#fbfcfe}
+.edit-row input:focus{outline:none; border-color:var(--navy2); box-shadow:var(--ring)}
 
 /* ---------- side rail nav ---------- */
 .sidenav{position:fixed; left:0; top:0; bottom:0; width:var(--rail); z-index:50; background:linear-gradient(180deg,var(--navy) 0%,var(--navy2) 80%,#2f5aa8 100%); border-right:3px solid var(--red); box-shadow:4px 0 16px rgba(22,48,94,.35); display:flex; flex-direction:column; justify-content:space-evenly; padding:10px 0 calc(10px + env(safe-area-inset-bottom))}
-.sidenav button{display:flex; flex-direction:column; align-items:center; gap:3px; padding:8px 2px; margin:0 5px; border-radius:12px; color:#9fb0d4; font-size:11px; font-weight:700; position:relative}
+.sidenav button{display:flex; flex-direction:column; align-items:center; gap:3px; padding:8px 2px; margin:0 5px; border-radius:12px; color:#9fb0d4; font-size:11px; font-weight:700; position:relative; transition:background .15s, color .15s}
+.sidenav button:active{background:rgba(255,255,255,.07)}
 .sidenav button svg{width:25px; height:25px}
 .sidenav button.on{color:#fff; background:rgba(255,255,255,.13)}
 .sidenav button.on svg{color:#ff8b99}
+.sidenav button:focus-visible{outline-color:rgba(255,255,255,.75)}
 
 /* ---------- overlays ---------- */
 .overlay{position:fixed; inset:0; z-index:60; background:rgba(9,16,30,.92); display:flex; flex-direction:column}
@@ -205,9 +229,10 @@ a.btn{text-decoration:none}
 .viewer-nav.prev{left:10px} .viewer-nav.next{right:10px}
 .sheet{position:fixed; inset:0; z-index:70; background:rgba(9,16,30,.45); display:flex; align-items:flex-end; justify-content:center}
 .sheet-in{background:var(--surface); width:100%; max-width:560px; max-height:82vh; overflow-y:auto; border-radius:20px 20px 0 0; padding:16px 14px 22px}
-.sheet-in h3{margin:2px 0 12px; color:var(--navy)}
+.sheet-in h3{margin:2px 0 12px; color:var(--navy); font-size:18px; font-weight:800}
 .sheet .x{float:right; background:var(--soft); width:32px; height:32px; border-radius:50%; color:var(--navy); font-weight:800}
 .search-in{width:100%; border:1.5px solid var(--border); border-radius:999px; padding:10px 15px; background:#fbfcfe; margin-bottom:10px}
+.search-in:focus{outline:none; border-color:var(--navy2); box-shadow:var(--ring)}
 .cat-chips{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px}
 .cat-chips button{padding:7px 12px; border-radius:999px; background:var(--soft); color:var(--navy); font-weight:700; font-size:13px}
 .cat-chips button.on{background:var(--navy); color:#fff}
@@ -219,8 +244,9 @@ a.btn{text-decoration:none}
 .song-row .sub{font-size:13px; color:var(--muted)}
 .song-row .use{background:var(--red); color:#fff; font-weight:800; padding:8px 14px; border-radius:999px}
 .song-row .prev{color:var(--navy); font-weight:700; padding:8px 6px}
-.toast{position:fixed; left:calc(50% + var(--rail)/2); bottom:24px; transform:translateX(-50%); z-index:90; background:var(--navy); color:#fff; padding:11px 18px; border-radius:999px; font-weight:600; font-size:14px; box-shadow:0 8px 24px rgba(10,20,40,.3); max-width:92vw; text-align:center}
-.empty{color:var(--muted); text-align:center; padding:26px 10px}
+.toast{position:fixed; left:calc(50% + var(--rail)/2); bottom:24px; transform:translateX(-50%); z-index:90; background:var(--navy); color:#fff; padding:11px 18px; border-radius:999px; font-weight:600; font-size:14px; line-height:1.4; box-shadow:0 8px 24px rgba(10,20,40,.3); max-width:92vw; text-align:center}
+.empty{color:var(--muted); text-align:center; padding:26px 10px; font-size:15px; line-height:1.5}
+.card.empty{border-style:dashed; background:rgba(255,255,255,.78); box-shadow:none}
 
 /* ---------- post editor ---------- */
 #postEditor{background:var(--wash); z-index:65}
@@ -234,7 +260,7 @@ a.btn{text-decoration:none}
 .editor-media-empty .eme-icon{font-size:40px; margin-bottom:6px}
 .editor-media-btns{display:flex; gap:6px; flex-wrap:wrap; margin-top:10px}
 #editorText{width:100%; margin-top:12px; border:1.5px solid var(--border); border-radius:12px; padding:12px; font-size:16px; resize:vertical; background:#fff; color:var(--ink)}
-#editorText:focus{outline:none; border-color:var(--navy2)}
+#editorText:focus{outline:none; border-color:var(--navy2); box-shadow:var(--ring)}
 .editor-hint{color:var(--muted); font-size:12px; margin:8px 2px 0}
 
 /* ---------- camera ---------- */
@@ -306,7 +332,7 @@ a.btn{text-decoration:none}
 .bubble-row.theirs{align-self:flex-start; align-items:flex-start}
 .bubble-row .bubble{padding:9px 13px; border-radius:16px; font-size:15px; line-height:1.4; white-space:pre-wrap; word-wrap:break-word; overflow-wrap:anywhere}
 .bubble-row.mine .bubble{background:var(--navy); color:#fff; border-bottom-right-radius:6px}
-.bubble-row.theirs .bubble{background:#fff; border:1px solid var(--border); border-bottom-left-radius:6px}
+.bubble-row.theirs .bubble{background:#fff; border:1px solid var(--border); border-bottom-left-radius:6px; box-shadow:0 1px 2px rgba(22,48,94,.06)}
 .bubble-row .btime{font-size:11px; color:var(--muted); margin:2px 4px 0}
 .bubble-photo{display:block; line-height:0}
 .bubble-photo img{display:block; max-width:230px; max-height:300px; width:auto; height:auto; border-radius:14px; border:1px solid var(--border)}
@@ -325,7 +351,7 @@ a.btn{text-decoration:none}
 .snap-note{color:rgba(255,255,255,.75); font-size:13px; text-align:center; margin:0}
 .thread-form{display:flex; gap:8px; width:100%; max-width:560px; margin:0 auto; padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
 .thread-form input{flex:1; border:1.5px solid var(--border); border-radius:999px; padding:11px 15px; background:#fff; color:var(--ink)}
-.thread-form input:focus{outline:none; border-color:var(--navy2)}
+.thread-form input:focus{outline:none; border-color:var(--navy2); box-shadow:var(--ring)}
 .thread-attach{flex:none; width:44px; height:44px; border-radius:50%; background:var(--soft); font-size:19px; display:inline-flex; align-items:center; justify-content:center}
 .thread-attach:active{background:var(--border)}
 .thread-flash{flex:none; height:44px; padding:0 13px; border-radius:999px; border:2px dashed var(--navy2); background:#fff; color:var(--navy); font-weight:700; font-size:14px; display:inline-flex; align-items:center; justify-content:center; white-space:nowrap}

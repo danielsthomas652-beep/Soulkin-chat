@@ -1167,7 +1167,7 @@ function renderMusicPicker() {
 }
 
 /* ================= people & friends ================= */
-function personRowHTML(p, actionHTML, chatTap) {
+function personRowHTML(p, actionHTML, chatTap, actionsBelow) {
   const posts = p.postCount != null ? ` · ${p.postCount} post${p.postCount === 1 ? '' : 's'}` : '';
   const dot = typeof p.online === 'boolean' ? `<span class="online-dot ${friendOnline(p) ? 'on' : ''}" data-dot-for="${p.id}" title="${friendOnline(p) ? 'Online now' : 'Offline'}"></span>` : '';
   // An adult receiving a request from a Protected account gets a plain note.
@@ -1175,8 +1175,22 @@ function personRowHTML(p, actionHTML, chatTap) {
   // Friends-list rows only (chatTap): the whole row opens the chat thread —
   // see the [data-friend-row] branch of the thread-opening click delegation.
   const tapAttrs = chatTap ? ` data-friend-row="${p.id}" data-msgname="${esc(p.displayName)}" data-msguser="${esc(p.username)}"` : '';
-  return `<div class="card person${chatTap ? ' friend-tap' : ''}"${tapAttrs}>${userAvatarHTML(p, 'md')}
-    <div class="grow"><div class="nm">${dot}${esc(p.displayName)}${p.isProtected ? '<span class="badge">🛡️ Protected</span>' : ''}</div><div class="sub">@${esc(p.username)}${posts}</div>${note}</div>
+  const who = `<div class="grow"><div class="nm">${dot}${esc(p.displayName)}${p.isProtected ? '<span class="badge">🛡️ Protected</span>' : ''}</div><div class="sub">@${esc(p.username)}${posts}</div>${note}</div>`;
+  // Two-line rows (friends list + friend requests): the name line stands
+  // on its own — avatar, name, @username, with nothing overlaid on it or
+  // squeezing it — and the action buttons get their own row UNDER the
+  // name, indented to line up with it (see .person-actions in style.css).
+  // Owner ask: the Message / Video call buttons used to crowd on top of
+  // the friend's name. Friends rows always stack (chatTap); request rows
+  // opt in with actionsBelow. The buttons themselves — markup, handlers,
+  // stop-propagation — are exactly what they were; only the layout moved.
+  if (chatTap || actionsBelow) {
+    return `<div class="card person person-stack${chatTap ? ' friend-tap' : ''}"${tapAttrs}><div class="person-main">${userAvatarHTML(p, 'md')}
+    ${who}</div>
+    ${actionHTML ? `<div class="person-actions">${actionHTML}</div>` : ''}</div>`;
+  }
+  return `<div class="card person"${tapAttrs}>${userAvatarHTML(p, 'md')}
+    ${who}
     ${actionHTML || ''}</div>`;
 }
 function friendBtnHTML(p) {
@@ -1203,10 +1217,10 @@ async function loadFriends() {
     const grownups = data.incoming.filter((p) => p.crossBand && !p.isProtected);
     const regular = data.incoming.filter((p) => !(p.crossBand && !p.isProtected));
     $('#friendRequests').innerHTML = regular.length
-      ? regular.map((p) => personRowHTML({ ...p, relationship: 'pending_in' }, acceptDeclineBtns(p))).join('')
+      ? regular.map((p) => personRowHTML({ ...p, relationship: 'pending_in' }, acceptDeclineBtns(p), false, true)).join('')
       : '<div class="card empty">No new requests right now.</div>';
     $('#grownupRequests').classList.toggle('hidden', grownups.length === 0);
-    $('#friendRequestsGrownups').innerHTML = grownups.map((p) => personRowHTML(p, acceptDeclineBtns(p))).join('');
+    $('#friendRequestsGrownups').innerHTML = grownups.map((p) => personRowHTML(p, acceptDeclineBtns(p), false, true)).join('');
     $('#friendList').innerHTML = data.friends.length
       ? data.friends.map((p) => personRowHTML(p, `<span class="friend-btns"><button class="btn sm" data-message="${p.id}" data-msgname="${esc(p.displayName)}" data-msguser="${esc(p.username)}" type="button">💬 Message</button>${p.phone ? `<a class="btn sm call-link" href="tel:${esc(p.phone)}">📞 Call</a>` : ''}<button class="btn sm" data-call="${p.id}" data-callname="${esc(p.displayName)}" type="button">📹 Video call</button><button class="btn ghost sm" data-friend="remove" data-id="${p.id}" type="button">Unfriend</button></span>`, true)).join('')
       : '<div class="card empty">No friends yet — add some from the People page! 🙂</div>';
