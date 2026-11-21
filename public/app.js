@@ -470,6 +470,11 @@ $('#editorPost').addEventListener('click', async () => {
  *   'snapvideo' — records a video (the camera opens straight into
  *     video mode) and sends it to that friend as a DISAPPEARING Flash
  *     video (sendThreadFlashVideo): one watch, then it's deleted.
+ *   The 'snap' / 'snapvideo' sends normally go to the friend whose
+ *     thread is open — but when the camera was opened from the
+ *     Friends-list ⚡ quick Flash sheet, the send consumes that
+ *     one-shot context instead and lands back on the Friends list
+ *     (see the quick Flash section by sendThreadSnap).
  * Leaving the camera screen (capture, ✕, Escape) always stops its
  * tracks; closing without capturing changes nothing.
  *
@@ -1121,8 +1126,14 @@ function personRowHTML(p, actionHTML, chatTap, actionsBelow) {
   // opt in with actionsBelow. The buttons themselves — markup, handlers,
   // stop-propagation — are exactly what they were; only the layout moved.
   if (chatTap || actionsBelow) {
+    // Friends rows only (chatTap): the ⚡ quick Flash button rides at the
+    // right end of the name line — one tap opens the quick Flash sheet
+    // for this friend (see openQuickFlash by the snap sends). Request
+    // rows never get it: Flashes are for friends. It's a <button>, so
+    // the row-tap handler leaves it alone and no thread opens under it.
+    const flashBtn = chatTap ? `<button class="btn sm quick-flash-btn" data-quickflash="${p.id}" data-qfname="${esc(p.displayName)}" data-qfuser="${esc(p.username)}" type="button" title="Send a disappearing Flash">⚡ Flash</button>` : '';
     return `<div class="card person person-stack${chatTap ? ' friend-tap' : ''}"${tapAttrs}><div class="person-main">${userAvatarHTML(p, 'md')}
-    ${who}</div>
+    ${who}${flashBtn}</div>
     ${actionHTML ? `<div class="person-actions">${actionHTML}</div>` : ''}</div>`;
   }
   return `<div class="card person"${tapAttrs}>${userAvatarHTML(p, 'md')}
@@ -1300,6 +1311,7 @@ function bubbleHTML(m) {
 function scrollThread() { const b = $('#threadBody'); b.scrollTop = b.scrollHeight; }
 async function openThread(user) {
   chatPeer = user;
+  quickFlashPeer = null; // entering a thread drops any pending quick-Flash context — a thread Flash goes to this friend
   setThreadFlash(false); // a Flash is always a fresh, deliberate choice
   $('#threadAvatar').innerHTML = userAvatarHTML(user, 'sm');
   $('#threadName').textContent = user.displayName;
@@ -1383,6 +1395,7 @@ $('#threadForm').addEventListener('submit', async (e) => {
  * (Flash videos carry no caption — video only). */
 function openThreadAttach() {
   if (!chatPeer) return;
+  quickFlashPeer = null; // this sheet's camera/gallery sends belong to the open thread, never to a quick Flash
   openSheet('Send a photo 📷');
   $('#sheetBody').innerHTML = '<div class="attach-choices">' +
     '<button class="btn block" id="attPhoto" type="button">📷 Photo — pick from your pictures</button>' +
@@ -1396,9 +1409,18 @@ function openThreadAttach() {
   $('#attFlashVideoCam').addEventListener('click', () => { closeSheet(); openCamera('snapvideo'); });
   $('#attFlashVideoPick').addEventListener('click', () => { closeSheet(); $('#threadVideoFile').click(); });
 }
-async function sendThreadFlashVideo(file) {
-  if (!chatPeer || !file) return;
-  const peerId = chatPeer.id;
+async function sendThreadFlashVideo(file) { return sendFlashVideoTo(file, takeQuickFlashPeer()); }
+/* The Flash video send itself, shared by the thread 📷 sheet (quick =
+ * null — the open thread, whose behavior is exactly what it has always
+ * been) and the Friends-list ⚡ quick Flash (quick = the friend picked
+ * there: the send lands back on the Friends list with a name toast and
+ * never touches the thread). Same endpoint, same gate, same
+ * withhold-until-open rules either way. takeQuickFlashPeer and the
+ * quick context live in the quick Flash section just below. */
+async function sendFlashVideoTo(file, quick) {
+  const peer = quick || chatPeer;
+  if (!peer || !file) return;
+  const peerId = peer.id;
   const fd = new FormData();
   fd.append('snap', '1');
   fd.append('media', file); // video only — no caption on a Flash video
@@ -1406,6 +1428,7 @@ async function sendThreadFlashVideo(file) {
     const res = await fetch('/api/messages/' + peerId, { method: 'POST', body: fd });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'That Flash video could not be sent.');
+    if (quick) { toast('⚡ Flash sent to ' + peer.displayName); return; }
     if (!chatPeer || chatPeer.id !== peerId) return; // thread closed or switched while sending
     const empty = $('#threadBody .empty'); if (empty) empty.remove();
     $('#threadBody').insertAdjacentHTML('beforeend', bubbleHTML(data.message));
@@ -1414,18 +1437,28 @@ async function sendThreadFlashVideo(file) {
   } catch (ex) { toast(ex.message); }
 }
 $('#threadVideoFile').addEventListener('change', (e) => { if (e.target.files[0]) sendThreadFlashVideo(e.target.files[0]); e.target.value = ''; });
-async function sendThreadSnap(file) {
-  if (!chatPeer || !file) return;
-  const peerId = chatPeer.id;
+async function sendThreadSnap(file) { return sendSnapTo(file, takeQuickFlashPeer()); }
+/* The snap (Flash photo) send itself, shared by the thread 📷 sheet
+ * (quick = null — the open thread, behavior exactly as it has always
+ * been, thread-input caption included) and the Friends-list ⚡ quick
+ * Flash (quick = the friend picked there: no caption, no thread DOM,
+ * just the name toast back on the Friends list). */
+async function sendSnapTo(file, quick) {
+  const peer = quick || chatPeer;
+  if (!peer || !file) return;
+  const peerId = peer.id;
   const fd = new FormData();
-  const caption = $('#threadText').value.trim();
-  if (caption) fd.append('text', caption);
+  if (!quick) {
+    const caption = $('#threadText').value.trim();
+    if (caption) fd.append('text', caption);
+  }
   fd.append('snap', '1');
   fd.append('media', file);
   try {
     const res = await fetch('/api/messages/' + peerId, { method: 'POST', body: fd });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'That Flash could not be sent.');
+    if (quick) { toast('⚡ Flash sent to ' + peer.displayName); return; }
     if (!chatPeer || chatPeer.id !== peerId) return; // thread closed or switched while sending
     const empty = $('#threadBody .empty'); if (empty) empty.remove();
     $('#threadBody').insertAdjacentHTML('beforeend', bubbleHTML(data.message));
@@ -1434,6 +1467,67 @@ async function sendThreadSnap(file) {
     toast('Flash sent 📸 — it disappears when they open it');
   } catch (ex) { toast(ex.message); }
 }
+/* ---- quick Flash (the ⚡ button beside a friend's name) ----
+ * Owner ask: "put a flash chat right next to the friend's names so we
+ * can just push that and it automatically sends a message" — and "a
+ * flash video too". Every accepted-friend row carries a ⚡ Flash
+ * button at the right end of its name line (see personRowHTML);
+ * tapping it opens a small sheet for that friend with three ways to
+ * Flash WITHOUT opening the thread first: type a Flash text and send
+ * it right from the sheet, take a Flash photo with the camera (or pick
+ * one from the gallery), or record a Flash video (or pick one). Every
+ * path rides the EXISTING sends — the JSON { text, snap: true } post
+ * for words, sendSnapTo / sendFlashVideoTo for media — so the server
+ * gate (accepted friends only; cross-band only when known_confirmed)
+ * and the withhold-until-open rules apply exactly as in a thread. The
+ * camera and gallery paths share a one-shot context, quickFlashPeer:
+ * the sheet sets it, the next snap send consumes it
+ * (takeQuickFlashPeer) and lands back on the Friends list. Entering a
+ * thread or its attach sheet clears it, so a stale context can never
+ * redirect a thread Flash. */
+let quickFlashPeer = null; // {id, displayName, username} awaiting a camera/gallery quick send
+let quickSheetPeer = null; // the friend whose quick Flash sheet is open
+function takeQuickFlashPeer() { const p = quickFlashPeer; quickFlashPeer = null; return p; }
+function openQuickFlash(peer) {
+  quickSheetPeer = peer;
+  openSheet('⚡ Flash to ' + peer.displayName);
+  $('#sheetBody').innerHTML = '<div class="attach-choices">' +
+    '<div class="quick-flash-row"><input id="qfText" maxlength="1000" placeholder="Write a Flash — gone after they read it…" autocomplete="off"><button class="btn red" id="qfSendText" type="button">Send ⚡</button></div>' +
+    '<button class="btn block" id="qfPhotoCam" type="button">📸 Flash photo — take a picture</button>' +
+    '<button class="btn block" id="qfPhotoPick" type="button">📸 Flash photo — pick from your pictures</button>' +
+    '<button class="btn block" id="qfVideoCam" type="button">⚡ Flash video — record with camera</button>' +
+    '<button class="btn block" id="qfVideoPick" type="button">⚡ Flash video — pick from your videos</button></div>';
+  $('#qfSendText').addEventListener('click', sendQuickFlashText);
+  $('#qfText').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendQuickFlashText(); } });
+  $('#qfPhotoCam').addEventListener('click', () => { quickFlashPeer = quickSheetPeer; closeSheet(); openCamera('snap'); });
+  $('#qfPhotoPick').addEventListener('click', () => { quickFlashPeer = quickSheetPeer; closeSheet(); $('#quickPhotoFile').click(); });
+  $('#qfVideoCam').addEventListener('click', () => { quickFlashPeer = quickSheetPeer; closeSheet(); openCamera('snapvideo'); });
+  $('#qfVideoPick').addEventListener('click', () => { quickFlashPeer = quickSheetPeer; closeSheet(); $('#quickVideoFile').click(); });
+}
+async function sendQuickFlashText() {
+  const peer = quickSheetPeer;
+  if (!peer) return;
+  const input = $('#qfText');
+  const text = input.value.trim();
+  if (!text) { toast('Write your Flash first, then tap Send ⚡'); return; }
+  const btn = $('#qfSendText');
+  btn.disabled = true;
+  try {
+    // The very same JSON post the thread's ⚡ toggle makes.
+    await api('/api/messages/' + peer.id, { method: 'POST', body: JSON.stringify({ text, snap: true }) });
+    closeSheet();
+    toast('⚡ Flash sent to ' + peer.displayName);
+  } catch (ex) { toast(ex.message); btn.disabled = false; }
+}
+/* The ⚡ button on a friend row. (The row-tap handler ignores taps on
+ * buttons, so the thread stays closed underneath the sheet.) */
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-quickflash]');
+  if (btn) openQuickFlash({ id: +btn.dataset.quickflash, displayName: btn.dataset.qfname, username: btn.dataset.qfuser });
+});
+$('#quickPhotoFile').addEventListener('change', (e) => { if (e.target.files[0]) sendThreadSnap(e.target.files[0]); e.target.value = ''; });
+$('#quickVideoFile').addEventListener('change', (e) => { if (e.target.files[0]) sendThreadFlashVideo(e.target.files[0]); e.target.value = ''; });
+
 /* ---- opening a Flash (recipient, exactly once) ----
  * Tapping a Flash chip calls the open endpoint, which hands over the
  * content AND destroys the server's copy in the same request. What

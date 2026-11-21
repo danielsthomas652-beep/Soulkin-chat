@@ -369,6 +369,14 @@ a.btn{text-decoration:none}
 .thread-flash:active{transform:scale(.96)}
 .attach-choices{display:flex; flex-direction:column; gap:10px}
 .attach-choices .btn{width:100%}
+/* Quick Flash (Friends-list ⚡ button + sheet): a red pill at the right
+   end of the friend's name line, and the sheet's type-and-send row —
+   its Send button keeps its natural width inside .attach-choices. */
+.quick-flash-btn{flex:none; background:linear-gradient(135deg,var(--red),#ff6b81); color:#fff}
+.quick-flash-row{display:flex; gap:8px}
+.quick-flash-row input{flex:1; min-width:0; padding:11px 13px; border:1.5px solid var(--border); border-radius:var(--radius-sm); background:#fbfcfe; color:var(--ink); font-size:15px}
+.quick-flash-row input:focus{outline:none; border-color:var(--navy2); box-shadow:var(--ring)}
+.quick-flash-row .btn{width:auto; flex:none}
 
 /* ---------- friend map ---------- */
 .map-status{display:flex; align-items:center; gap:12px}
